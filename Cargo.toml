@@ -1,0 +1,19 @@
+[package]
+edition = "2021"
+name = "bevystein"
+version = "0.0.1"
+
+[dependencies]
+bevy = {version = "0.6.0"}
+bevy_tasks = "0.6.0"
+bevy-inspector-egui = {version = "0.8.0"}
+bevy_mod_picking = {version="0.5.2"}
+bevy_config_cam = "0.2.0"
+heron = { version = "1.1.0", features = ["3d"] }
+
+[profile.dev]
+opt-level = 3
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+# [profile.dev.package."*"]
+# opt-level = 3
