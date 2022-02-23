@@ -11,6 +11,7 @@ bevy_mod_picking = {version="0.5.2"}
 bevy_config_cam = "0.2.0"
 heron = { version = "1.1.0", features = ["3d"] }
 
+
 [profile.dev]
 opt-level = 3
 
