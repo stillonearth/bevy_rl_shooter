@@ -12,12 +12,15 @@ enum Layer {
     Enemies,
 }
 
+#[derive(Component)]
+struct PlayerCamera;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(PhysicsPlugin::default())
-        // .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0))) // Optionally define gravity
-        // .add_startup_system(spawn_game_world)
+        .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0))) // Optionally define gravity
+        .add_startup_system(spawn_game_world)
         .add_startup_system(spawn_player)
         .add_startup_system(setup_camera)
         .add_plugin(WorldInspectorPlugin::new())
@@ -45,7 +48,7 @@ fn spawn_game_world(
     commands
         .spawn_bundle(PbrBundle {
             mesh: mesh.clone(),
-            material: materials.add(Color::WHITE.into()),
+            material: materials.add(Color::GREEN.into()),
             ..Default::default()
         })
         .insert(RigidBody::Static)
@@ -81,7 +84,7 @@ fn spawn_game_world(
                 commands
                     .spawn_bundle(PbrBundle {
                         mesh: meshes.add(Mesh::from(shape::Cube { size: 2.0 })),
-                        material: materials.add(Color::BLACK.into()),
+                        material: materials.add(Color::RED.into()),
                         transform: Transform::from_translation(Vec3::new(
                             x as f32, y as f32, z as f32,
                         )),
@@ -94,7 +97,7 @@ fn spawn_game_world(
                         border_radius: None,
                     });
             } else {
-                if (x + y) % 5 == 0 {
+                if (x + y) % 10 == 0 {
                     commands.spawn_bundle(PointLightBundle {
                         point_light: PointLight {
                             intensity: 500.0,
@@ -111,17 +114,19 @@ fn spawn_game_world(
 
 fn setup_camera(mut commands: Commands) {
     let mut camera_transform = Transform::from_matrix(Mat4::from_rotation_translation(
-        Quat::from_xyzw(-0.3, -0.5, -0.3, 0.5).normalize(),
-        Vec3::new(-7.5, 10.0, 3.5),
+        Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+        Vec3::new(0.0, 10.0, 0.0),
     ));
 
     camera_transform.scale.z = 1.5;
 
     // Camera
-    commands.spawn_bundle(PerspectiveCameraBundle {
-        transform: camera_transform,
-        ..Default::default()
-    });
+    commands
+        .spawn_bundle(PerspectiveCameraBundle {
+            transform: camera_transform,
+            ..Default::default()
+        })
+        .insert(PlayerCamera);
 }
 
 pub fn spawn_player(
@@ -133,7 +138,7 @@ pub fn spawn_player(
     commands
         .spawn_bundle((
             Transform {
-                translation: Vec3::new(0.0, 2.0, 0.0),
+                translation: Vec3::new(33.0, 5.0, 33.0),
                 rotation: Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2),
                 ..Default::default()
             },
@@ -142,31 +147,44 @@ pub fn spawn_player(
         .with_children(|cell| {
             cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
         })
-        .insert(CollisionShape::Sphere { radius: 1.0 })
+        .insert(CollisionShape::Cuboid {
+            half_extends: Vec3::new(1.0, 1.0, 1.0),
+            border_radius: None,
+        })
         .insert(Velocity::from_linear(Vec3::X * 0.0))
         .insert(RigidBody::Dynamic);
 }
 
 fn move_player(
     keys: Res<Input<KeyCode>>,
-    time: Res<Time>,
-    mut velocities: Query<(Entity, &mut Velocity, &Transform)>,
+    mut velocities: Query<(&mut Velocity, &Transform), Without<PlayerCamera>>,
+    mut cameras: Query<(&mut Transform), With<PlayerCamera>>,
 ) {
-    for (mut entity, mut acceleration, transform) in velocities.iter_mut() {
-        *acceleration = Velocity::from_linear(Vec3::X * 0.0);
+    for (mut velocity, transform) in velocities.iter_mut() {
+        *velocity = Velocity::from_linear(Vec3::X * 0.0);
         for key in keys.get_pressed() {
             if *key == KeyCode::Up {
-                *acceleration = Velocity::from_linear(transform.forward().normalize());
+                *velocity = Velocity::from_linear(10. * transform.forward().normalize());
             }
             if *key == KeyCode::Down {
-                *acceleration = Velocity::from_linear(-transform.forward().normalize());
+                *velocity = Velocity::from_linear(10. * -transform.forward().normalize());
             }
             if *key == KeyCode::Left {
-                *acceleration = Velocity::from_angular(AxisAngle::new(Vec3::Y, 0.5 * 3.14));
+                *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, 0.5 * 3.14));
             }
             if *key == KeyCode::Right {
-                *acceleration = Velocity::from_angular(AxisAngle::new(Vec3::Y, -0.5 * 3.14));
+                *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, -0.5 * 3.14));
             }
+        }
+
+        for mut _tr in cameras.iter_mut() {
+            _tr.translation.x = transform.translation.x;
+            _tr.translation.z = transform.translation.z;
+            _tr.translation.y = 1.0;
+
+            let fw_vec = transform.forward().normalize();
+
+            _tr.rotation = Quat::from_rotation_arc(-Vec3::Z, transform.forward().normalize());
         }
     }
 }
