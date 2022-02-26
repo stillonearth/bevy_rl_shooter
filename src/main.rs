@@ -28,7 +28,9 @@ fn main() {
         .add_startup_system(setup_camera)
         .add_startup_system(draw_hud)
         .add_plugin(WorldInspectorPlugin::new())
+        .init_resource::<BlazkowiczFaces>()
         .add_system(move_player)
+        .add_system(animate_sprite)
         .run();
 }
 
@@ -238,47 +240,80 @@ fn is_world(layers: CollisionLayers) -> bool {
 #[derive(Component)]
 struct AnimationTimer(Timer);
 
-fn draw_hud(
-    mut commands: Commands,
-    mut textures: ResMut<Assets<Image>>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-) {
-    let face_sprite_1 = bevystein::elden::get_image(bevystein::cache::FACE1APIC);
-    let face_sprite_2 = bevystein::elden::get_image(bevystein::cache::FACE1BPIC);
-    let face_sprite_3 = bevystein::elden::get_image(bevystein::cache::FACE1CPIC);
+fn draw_hud(mut commands: Commands, blazkowicz_faces: Res<BlazkowiczFaces>) {
+    commands.spawn_bundle(UiCameraBundle::default());
 
-    let mut texture_atlas_builder = TextureAtlasBuilder::default();
-    texture_atlas_builder.add_texture(textures.add(face_sprite_1.clone()), &face_sprite_1);
-    texture_atlas_builder.add_texture(textures.add(face_sprite_2.clone()), &face_sprite_2);
-    texture_atlas_builder.add_texture(textures.add(face_sprite_3.clone()), &face_sprite_3);
-
-    let texture_atlas = texture_atlas_builder.finish(&mut textures).unwrap();
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands
-        .spawn_bundle(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle,
-            transform: Transform::from_scale(Vec3::new(10.0, 10.0, 10.0)),
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            // texture_atlas: texture_atlas_handle,
             ..Default::default()
         })
-        .insert(AnimationTimer(Timer::from_seconds(2.0, true)));
+        .with_children(|parent| {
+            // bevy logo (image)
+            parent
+                .spawn_bundle(ImageBundle {
+                    style: Style {
+                        size: Size::new(Val::Px(180.0), Val::Auto),
+                        ..Default::default()
+                    },
+                    image: blazkowicz_faces.sprites[0].clone().into(),
+                    ..Default::default()
+                })
+                .insert(AnimationTimer(Timer::from_seconds(2.0, true)));
+        });
+}
+
+impl FromWorld for BlazkowiczFaces {
+    fn from_world(world: &mut World) -> Self {
+        let world = world.cell();
+        let mut image_assets = world.get_resource_mut::<Assets<Image>>().unwrap();
+
+        let mut sprites: Vec<Handle<Image>> = Vec::new();
+
+        let face_sprite_1 = bevystein::elden::get_image(bevystein::cache::FACE1APIC);
+        let face_sprite_2 = bevystein::elden::get_image(bevystein::cache::FACE1BPIC);
+        let face_sprite_3 = bevystein::elden::get_image(bevystein::cache::FACE1CPIC);
+
+        sprites.push(image_assets.add(face_sprite_1));
+        sprites.push(image_assets.add(face_sprite_2));
+        sprites.push(image_assets.add(face_sprite_3));
+
+        return Self {
+            sprites,
+            current_index: 0,
+        };
+    }
+}
+
+pub struct BlazkowiczFaces {
+    pub sprites: Vec<Handle<Image>>,
+    pub current_index: u8,
 }
 
 fn animate_sprite(
     time: Res<Time>,
-    texture_atlases: Res<Assets<TextureAtlas>>,
-    mut query: Query<(
-        &mut AnimationTimer,
-        &mut TextureAtlasSprite,
-        &Handle<TextureAtlas>,
-    )>,
+    mut blazkowicz_faces: ResMut<BlazkowiczFaces>,
+    mut query: Query<(&mut AnimationTimer, &mut UiImage)>,
 ) {
-    for (mut timer, mut sprite, texture_atlas_handle) in query.iter_mut() {
+    for (mut timer, mut ui_image) in query.iter_mut() {
         timer.0.tick(time.delta());
+
         if timer.0.just_finished() {
-            let texture_atlas = texture_atlases.get(texture_atlas_handle).unwrap();
-            sprite.index = (sprite.index + 1) % texture_atlas.textures.len();
+            blazkowicz_faces.current_index += 1;
+            if blazkowicz_faces.current_index >= (blazkowicz_faces.sprites.len() as u8) {
+                blazkowicz_faces.current_index = 0;
+            }
+
+            ui_image.0 = blazkowicz_faces.sprites[blazkowicz_faces.current_index as usize]
+                .clone()
+                .into();
         }
     }
 }
