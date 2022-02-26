@@ -4,7 +4,7 @@ name = "bevystein"
 version = "0.0.1"
 
 [dependencies]
-bevy = {version = "0.6.0"}
+bevy = { git = "https://github.com/stillonearth/bevy", rev = "7de6cd4" }
 bevy_tasks = "0.6.0"
 bevy-inspector-egui = {version = "0.8.0"}
 bevy_mod_picking = {version="0.5.2"}

@@ -26,6 +26,7 @@ fn main() {
         .add_startup_system(spawn_game_world)
         .add_startup_system(spawn_player)
         .add_startup_system(setup_camera)
+        .add_startup_system(draw_hud)
         .add_plugin(WorldInspectorPlugin::new())
         .add_system(move_player)
         .run();
@@ -159,11 +160,6 @@ pub fn spawn_player(
         })
         .insert(CollisionLayers::new(Layer::Player, Layer::World))
         .insert(RotationConstraints::lock());
-    // .insert(RotationConstraints {
-    //     allow_x: false,
-    //     allow_y: true,
-    //     allow_z: false,
-    // });
 }
 
 fn move_player(
@@ -230,4 +226,52 @@ fn is_player(layers: CollisionLayers) -> bool {
 
 fn is_world(layers: CollisionLayers) -> bool {
     !layers.contains_group(Layer::Player) && layers.contains_group(Layer::World)
+}
+
+#[derive(Component)]
+struct AnimationTimer(Timer);
+
+fn draw_hud(
+    mut commands: Commands,
+    mut textures: ResMut<Assets<Image>>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+) {
+    let face_sprite_1 = bevystein::elden::get_image(bevystein::cache::FACE1APIC);
+    let face_sprite_2 = bevystein::elden::get_image(bevystein::cache::FACE1BPIC);
+    let face_sprite_3 = bevystein::elden::get_image(bevystein::cache::FACE1CPIC);
+
+    let mut texture_atlas_builder = TextureAtlasBuilder::default();
+    texture_atlas_builder.add_texture(textures.add(face_sprite_1.clone()), &face_sprite_1);
+    texture_atlas_builder.add_texture(textures.add(face_sprite_2.clone()), &face_sprite_2);
+    texture_atlas_builder.add_texture(textures.add(face_sprite_3.clone()), &face_sprite_3);
+
+    let texture_atlas = texture_atlas_builder.finish(&mut textures).unwrap();
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+
+    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+    commands
+        .spawn_bundle(SpriteSheetBundle {
+            texture_atlas: texture_atlas_handle,
+            transform: Transform::from_scale(Vec3::new(10.0, 10.0, 10.0)),
+            ..Default::default()
+        })
+        .insert(AnimationTimer(Timer::from_seconds(2.0, true)));
+}
+
+fn animate_sprite(
+    time: Res<Time>,
+    texture_atlases: Res<Assets<TextureAtlas>>,
+    mut query: Query<(
+        &mut AnimationTimer,
+        &mut TextureAtlasSprite,
+        &Handle<TextureAtlas>,
+    )>,
+) {
+    for (mut timer, mut sprite, texture_atlas_handle) in query.iter_mut() {
+        timer.0.tick(time.delta());
+        if timer.0.just_finished() {
+            let texture_atlas = texture_atlases.get(texture_atlas_handle).unwrap();
+            sprite.index = (sprite.index + 1) % texture_atlas.textures.len();
+        }
+    }
 }
