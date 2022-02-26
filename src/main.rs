@@ -164,7 +164,14 @@ pub fn spawn_player(
 
 fn move_player(
     keys: Res<Input<KeyCode>>,
-    mut velocities: Query<(&mut Velocity, &mut Acceleration, &Transform), Without<PlayerCamera>>,
+    mut velocities: Query<
+        (
+            &mut heron::prelude::Velocity,
+            &mut heron::prelude::Acceleration,
+            &Transform,
+        ),
+        Without<PlayerCamera>,
+    >,
     mut cameras: Query<(&mut Transform), With<PlayerCamera>>,
     mut events: EventReader<CollisionEvent>,
 ) {
