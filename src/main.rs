@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_mod_raycast::{
-    DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource, SimplifiedMesh,
-};
+use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
 
 pub mod map_parser;
 
@@ -388,7 +386,7 @@ fn event_gun_shot(
     mut wolfenstein_sprites: ResMut<WolfensteinSprites>,
     mut gunshot_events: EventReader<EventGunShot>,
     mut query: Query<(&Weapon, &mut UiImage)>,
-    mut shooting_query: Query<(Entity, Option<&SimplifiedMesh>), With<RayCastSource<MyRaycastSet>>>,
+    mut shooting_query: Query<&RayCastSource<MyRaycastSet>>,
 ) {
     for e in gunshot_events.iter() {
         for (_, mut ui_image) in query.iter_mut() {
@@ -398,25 +396,13 @@ fn event_gun_shot(
                 .into();
         }
 
-        if let Ok((entity, ray)) = shooting_query.get_single() {
-            if let Ok(mut text) = status_query.get_single_mut() {
-                if ray.is_none() {
-                    commands.entity(entity).insert(SimplifiedMesh {
-                        mesh: meshes.add(Mesh::from(shape::UVSphere::default())),
-                    });
-                    text.sections[1].value = "ON".to_string();
-                    text.sections[1].style.color = Color::GREEN;
-                } else {
-                    commands.entity(entity).remove::<SimplifiedMesh>();
-                    text.sections[1].value = "OFF".to_string();
-                    text.sections[1].style.color = Color::RED;
-                }
-            }
-        }
-
         for e in shooting_query.iter_mut() {
-            // commands.entity(e).despawn();
-            println!("{:?}", e);
+            let r = e.intersect_top();
+            if r.is_none() {
+                return;
+            }
+
+            commands.entity(r.unwrap().0).despawn();
         }
     }
 }
