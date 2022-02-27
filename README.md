@@ -5,15 +5,15 @@ This is an attempt to build minimal FPS game with rust.
 
 Currently working
 
-[+] Collisions
-[+] Shooting
-[+] Map consturction
+* [+] Collisions
+* [+] Shooting
+* [+] Map consturction
 
 TODO:
 
-[ ] Enemies
-[ ] Player health
-[ ] Enemy AI with neural networks
+* [ ] Enemies
+* [ ] Player health
+* [ ] Enemy AI with neural networks
 
 ## Acknowledgements
 
