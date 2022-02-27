@@ -304,3 +304,143 @@ pub fn get_image(image_id: usize) -> Image {
         TextureFormat::Rgba8UnormSrgb,
     );
 }
+
+// pub fn get_gun() -> Image {
+//     let cache = cache::startup();
+//     let (weapon_shape, weapon_data) = cache.get_sprite(209);
+
+//     // weapon_shape.
+
+//     for y in 0..weapon_shape {
+//         for x in 0..face_pic.width {
+//             let source_index = (y * (face_pic.width >> 2) + (x >> 2))
+//                 + (x & 3) * (face_pic.width >> 2) * face_pic.height;
+//             let color = face_pic.data[source_index as usize];
+//             let color = color_map[color as usize];
+//             pixels.push(color.0);
+//             pixels.push(color.1);
+//             pixels.push(color.2);
+//             pixels.push(255);
+//         }
+//     }
+
+//     return Image::new_fill(
+//         Extent3d {
+//             width: face_pic.width,
+//             height: face_pic.height,
+//             depth_or_array_layers: 1,
+//         },
+//         TextureDimension::D2,
+//         &pixels,
+//         TextureFormat::Rgba8UnormSrgb,
+//     );
+// }
+
+// fn simple_scale_shape(
+//     view_width: u32,
+//     view_height: u32,
+//     color_map: ColorMap,
+//     vbuf: &mut [u8],
+//     pitch: usize,
+//     left_pix: u16,
+//     right_pix: u16,
+//     dataofs: &[u16],
+//     shape_bytes: &[u8],
+// ) {
+//     let sprite_scale_factor = 2;
+//     let xcenter = view_width / 2;
+//     let height = view_height + 1;
+
+//     let scale = height >> 1;
+//     let pixheight = scale * sprite_scale_factor;
+//     let actx = xcenter - scale;
+//     let upperedge = view_height / 2 - scale;
+//     // cmdptr=(word *) shape->dataofs;
+//     // cmdptr = iter(shape.dataofs)
+//     let mut cmdptr = dataofs.iter();
+
+//     let mut i = left_pix;
+//     let mut pixcnt = i as u32 * pixheight;
+//     let mut rpix = (pixcnt >> 6) + actx;
+
+//     while i <= right_pix {
+//         let mut lpix = rpix;
+//         if lpix >= view_width {
+//             break;
+//         }
+
+//         pixcnt += pixheight;
+//         rpix = (pixcnt >> 6) + actx;
+
+//         if lpix != rpix && rpix > 0 {
+//             if lpix < 0 {
+//                 lpix = 0;
+//             }
+//             if rpix > view_width {
+//                 rpix = view_width;
+//                 i = right_pix + 1;
+//             }
+//             let read_word = |line: &mut Iter<u8>| {
+//                 u16::from_le_bytes([*line.next().unwrap_or(&0), *line.next().unwrap_or(&0)])
+//             };
+//             let read_word_signed = |line: &mut Iter<u8>| {
+//                 i16::from_le_bytes([*line.next().unwrap_or(&0), *line.next().unwrap_or(&0)])
+//             };
+
+//             let cline = &shape_bytes[*cmdptr.next().unwrap() as usize..];
+//             while lpix < rpix {
+//                 let mut line = cline.iter();
+//                 let mut endy = read_word(&mut line);
+//                 while endy > 0 {
+//                     endy >>= 1;
+//                     let newstart = read_word_signed(&mut line);
+//                     let starty = read_word(&mut line) >> 1;
+//                     let mut j = starty;
+//                     let mut ycnt = j as u32 * pixheight;
+//                     let mut screndy: i32 = (ycnt >> 6) as i32 + upperedge as i32;
+
+//                     let mut vmem_index: usize = if screndy < 0 {
+//                         lpix as usize * 3
+//                     } else {
+//                         screndy as usize * pitch + lpix as usize * 3
+//                     };
+
+//                     while j < endy {
+//                         let mut scrstarty = screndy;
+//                         ycnt += pixheight;
+//                         screndy = (ycnt >> 6) as i32 + upperedge as i32;
+//                         if scrstarty != screndy && screndy > 0 {
+//                             let index = newstart + j as i16;
+//                             let col = if index >= 0 {
+//                                 shape_bytes[index as usize]
+//                             } else {
+//                                 0
+//                             };
+//                             if scrstarty < 0 {
+//                                 scrstarty = 0;
+//                             }
+//                             if screndy > view_height as i32 {
+//                                 screndy = view_height as i32;
+//                                 j = endy;
+//                             }
+
+//                             while scrstarty < screndy {
+//                                 // FIXME can put pixel be used here instead?
+//                                 let (r, g, b) = color_map[col as usize];
+//                                 vbuf[vmem_index as usize] = r;
+//                                 vbuf[vmem_index as usize + 1] = g;
+//                                 vbuf[vmem_index as usize + 2] = b;
+//                                 vmem_index += pitch;
+//                                 scrstarty += 1;
+//                             }
+//                         }
+//                         j += 1;
+//                     }
+//                     endy = read_word(&mut line);
+//                 }
+//                 lpix += 1;
+//             }
+//         }
+//         i += 1;
+//     }
+// }

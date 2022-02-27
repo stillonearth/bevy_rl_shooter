@@ -1,5 +1,8 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_mod_raycast::{
+    DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource, SimplifiedMesh,
+};
 
 pub mod map_parser;
 
@@ -17,6 +20,10 @@ struct PlayerCamera;
 #[derive(Component)]
 struct Player;
 
+pub struct EventGunShot {
+    value: usize,
+}
+
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.0, 0.2, 0.8)))
@@ -27,10 +34,15 @@ fn main() {
         .add_startup_system(spawn_player)
         .add_startup_system(setup_camera)
         .add_startup_system(draw_hud)
+        .add_startup_system(draw_gun)
         .add_plugin(WorldInspectorPlugin::new())
-        .init_resource::<BlazkowiczFaces>()
-        .add_system(move_player)
-        .add_system(animate_sprite)
+        .init_resource::<WolfensteinSprites>()
+        .add_system(control_player)
+        .add_system(animate_face)
+        .add_system(animate_gun)
+        .add_system(event_gun_shot)
+        .add_event::<EventGunShot>()
+        .add_plugin(DefaultRaycastingPlugin::<MyRaycastSet>::default())
         .run();
 }
 
@@ -40,13 +52,9 @@ fn spawn_game_world(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Plane
-
     let maps = map_parser::load_maps("shareware/MAPHEAD.WL1", "shareware/GAMEMAPS.WL1", Some(1));
-
     let map = &maps[0];
-
     let size = map.width_n_tiles * map.height_n_tiles;
-
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
     }));
@@ -102,10 +110,13 @@ fn spawn_game_world(
                         half_extends: Vec3::new(1.0, 1.0, 1.0),
                         border_radius: None,
                     })
-                    .insert(CollisionLayers::new(Layer::World, Layer::Player));
+                    .insert(CollisionLayers::new(Layer::World, Layer::Player))
+                    .insert(RayCastMesh::<MyRaycastSet>::default()); // Make this mesh ray cast-able
             }
         });
 }
+
+struct MyRaycastSet;
 
 fn setup_camera(mut commands: Commands) {
     let mut camera_transform = Transform::from_matrix(Mat4::from_rotation_translation(
@@ -113,14 +124,16 @@ fn setup_camera(mut commands: Commands) {
         Vec3::new(0.0, 10.0, 0.0),
     ));
 
-    camera_transform.scale.z = 1.5;
+    // camera_transform.scale.z = 1.5;
 
+    commands.insert_resource(DefaultPluginState::<MyRaycastSet>::default().with_debug_cursor());
     // Camera
     commands
         .spawn_bundle(PerspectiveCameraBundle {
             transform: camera_transform,
             ..Default::default()
         })
+        .insert(RayCastSource::<MyRaycastSet>::new_transform_empty())
         .insert(PlayerCamera);
 }
 
@@ -164,7 +177,7 @@ pub fn spawn_player(
         .insert(RotationConstraints::lock());
 }
 
-fn move_player(
+fn control_player(
     keys: Res<Input<KeyCode>>,
     mut velocities: Query<
         (
@@ -175,7 +188,8 @@ fn move_player(
         Without<PlayerCamera>,
     >,
     mut cameras: Query<(&mut Transform), With<PlayerCamera>>,
-    mut events: EventReader<CollisionEvent>,
+    mut collison_events: EventReader<CollisionEvent>,
+    mut event_gun_shot: EventWriter<EventGunShot>,
 ) {
     for (mut velocity, mut acceleration, transform) in velocities.iter_mut() {
         *velocity = Velocity::from_linear(Vec3::X * 0.0);
@@ -194,18 +208,18 @@ fn move_player(
             if *key == KeyCode::D {
                 *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, -0.5 * 3.14));
             }
+            if keys.just_pressed(KeyCode::LControl) {
+                event_gun_shot.send(EventGunShot { value: 0 });
+            }
         }
 
-        events
+        collison_events
             .iter()
             // We care about when the entities "start" to collide
             // .filter(|e| e.)
             .filter_map(|event| {
                 let (entity_1, entity_2) = event.rigid_body_entities();
                 let (layers_1, layers_2) = event.collision_layers();
-
-                println!("{:?}", layers_1);
-                println!("{:?}", layers_2);
 
                 if is_player(layers_1) && is_world(layers_2) {
                     Some(entity_2)
@@ -240,18 +254,24 @@ fn is_world(layers: CollisionLayers) -> bool {
 #[derive(Component)]
 struct AnimationTimer(Timer);
 
-fn draw_hud(mut commands: Commands, blazkowicz_faces: Res<BlazkowiczFaces>) {
+#[derive(Component)]
+struct Weapon;
+
+fn draw_hud(mut commands: Commands, wolfenstein_sprites: Res<WolfensteinSprites>) {
     commands.spawn_bundle(UiCameraBundle::default());
 
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Px(180.0)),
                 position_type: PositionType::Absolute,
                 position: Rect {
                     ..Default::default()
                 },
+                justify_content: JustifyContent::Center,
                 ..Default::default()
             },
+            color: Color::BLUE.clone().into(),
             // texture_atlas: texture_atlas_handle,
             ..Default::default()
         })
@@ -260,58 +280,166 @@ fn draw_hud(mut commands: Commands, blazkowicz_faces: Res<BlazkowiczFaces>) {
             parent
                 .spawn_bundle(ImageBundle {
                     style: Style {
-                        size: Size::new(Val::Px(180.0), Val::Auto),
+                        size: Size::new(Val::Auto, Val::Px(180.)),
                         ..Default::default()
                     },
-                    image: blazkowicz_faces.sprites[0].clone().into(),
+                    image: wolfenstein_sprites.face[wolfenstein_sprites.face_index as usize]
+                        .clone()
+                        .into(),
                     ..Default::default()
                 })
+                .insert(Player)
                 .insert(AnimationTimer(Timer::from_seconds(2.0, true)));
         });
 }
 
-impl FromWorld for BlazkowiczFaces {
+fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<WolfensteinSprites>) {
+    commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Px(450.0)),
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    bottom: Val::Px(180.),
+                    ..Default::default()
+                },
+                justify_content: JustifyContent::Center,
+                ..Default::default()
+            },
+            visibility: Visibility { is_visible: false },
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            // bevy logo (image)
+            parent
+                .spawn_bundle(ImageBundle {
+                    style: Style {
+                        size: Size::new(Val::Auto, Val::Auto),
+                        ..Default::default()
+                    },
+                    image: wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
+                        .clone()
+                        .into(),
+                    ..Default::default()
+                })
+                .insert(Weapon)
+                .insert(AnimationTimer(Timer::from_seconds(0.1, true)));
+        });
+}
+
+impl FromWorld for WolfensteinSprites {
     fn from_world(world: &mut World) -> Self {
         let world = world.cell();
         let mut image_assets = world.get_resource_mut::<Assets<Image>>().unwrap();
 
-        let mut sprites: Vec<Handle<Image>> = Vec::new();
+        let mut face: Vec<Handle<Image>> = Vec::new();
 
-        let face_sprite_1 = bevystein::elden::get_image(bevystein::cache::FACE1APIC);
-        let face_sprite_2 = bevystein::elden::get_image(bevystein::cache::FACE1BPIC);
-        let face_sprite_3 = bevystein::elden::get_image(bevystein::cache::FACE1CPIC);
+        face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1APIC)));
+        face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1BPIC)));
+        face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1CPIC)));
 
-        sprites.push(image_assets.add(face_sprite_1));
-        sprites.push(image_assets.add(face_sprite_2));
-        sprites.push(image_assets.add(face_sprite_3));
+        let mut asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+
+        let mut gun: Vec<Handle<Image>> = Vec::new();
+
+        gun.push(asset_server.load("gun/gun_0.png"));
+        gun.push(asset_server.load("gun/gun_1.png"));
+        gun.push(asset_server.load("gun/gun_2.png"));
 
         return Self {
-            sprites,
-            current_index: 0,
+            face,
+            gun,
+            face_index: 0,
+            gun_index: 0,
         };
     }
 }
 
-pub struct BlazkowiczFaces {
-    pub sprites: Vec<Handle<Image>>,
-    pub current_index: u8,
+pub struct WolfensteinSprites {
+    pub face: Vec<Handle<Image>>,
+    pub face_index: u8,
+    pub gun: Vec<Handle<Image>>,
+    pub gun_index: u8,
 }
 
-fn animate_sprite(
+fn animate_face(
     time: Res<Time>,
-    mut blazkowicz_faces: ResMut<BlazkowiczFaces>,
-    mut query: Query<(&mut AnimationTimer, &mut UiImage)>,
+    mut wolfenstein_sprites: ResMut<WolfensteinSprites>,
+    mut query: Query<(&Player, &mut AnimationTimer, &mut UiImage)>,
 ) {
-    for (mut timer, mut ui_image) in query.iter_mut() {
+    for (_, mut timer, mut ui_image) in query.iter_mut() {
         timer.0.tick(time.delta());
 
         if timer.0.just_finished() {
-            blazkowicz_faces.current_index += 1;
-            if blazkowicz_faces.current_index >= (blazkowicz_faces.sprites.len() as u8) {
-                blazkowicz_faces.current_index = 0;
+            wolfenstein_sprites.face_index += 1;
+            if wolfenstein_sprites.face_index >= (wolfenstein_sprites.face.len() as u8) {
+                wolfenstein_sprites.face_index = 0;
             }
 
-            ui_image.0 = blazkowicz_faces.sprites[blazkowicz_faces.current_index as usize]
+            ui_image.0 = wolfenstein_sprites.face[wolfenstein_sprites.face_index as usize]
+                .clone()
+                .into();
+        }
+    }
+}
+
+fn event_gun_shot(
+    mut commands: Commands,
+    mut wolfenstein_sprites: ResMut<WolfensteinSprites>,
+    mut gunshot_events: EventReader<EventGunShot>,
+    mut query: Query<(&Weapon, &mut UiImage)>,
+    mut shooting_query: Query<(Entity, Option<&SimplifiedMesh>), With<RayCastSource<MyRaycastSet>>>,
+) {
+    for e in gunshot_events.iter() {
+        for (_, mut ui_image) in query.iter_mut() {
+            wolfenstein_sprites.gun_index = 1;
+            ui_image.0 = wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
+                .clone()
+                .into();
+        }
+
+        if let Ok((entity, ray)) = shooting_query.get_single() {
+            if let Ok(mut text) = status_query.get_single_mut() {
+                if ray.is_none() {
+                    commands.entity(entity).insert(SimplifiedMesh {
+                        mesh: meshes.add(Mesh::from(shape::UVSphere::default())),
+                    });
+                    text.sections[1].value = "ON".to_string();
+                    text.sections[1].style.color = Color::GREEN;
+                } else {
+                    commands.entity(entity).remove::<SimplifiedMesh>();
+                    text.sections[1].value = "OFF".to_string();
+                    text.sections[1].style.color = Color::RED;
+                }
+            }
+        }
+
+        for e in shooting_query.iter_mut() {
+            // commands.entity(e).despawn();
+            println!("{:?}", e);
+        }
+    }
+}
+
+fn animate_gun(
+    time: Res<Time>,
+    mut wolfenstein_sprites: ResMut<WolfensteinSprites>,
+    mut query: Query<(&Weapon, &mut AnimationTimer, &mut UiImage)>,
+) {
+    if wolfenstein_sprites.gun_index == 0 {
+        return;
+    }
+
+    for (_, mut timer, mut ui_image) in query.iter_mut() {
+        timer.0.tick(time.delta());
+
+        if timer.0.just_finished() {
+            wolfenstein_sprites.gun_index += 1;
+            if wolfenstein_sprites.gun_index >= (wolfenstein_sprites.gun.len() as u8) {
+                wolfenstein_sprites.gun_index = 0;
+            }
+
+            ui_image.0 = wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
                 .clone()
                 .into();
         }
