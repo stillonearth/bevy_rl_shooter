@@ -11,11 +11,8 @@ bevy_mod_picking = {version="0.5.2"}
 bevy_config_cam = "0.2.0"
 heron = { version = "2.0.1", features = ["3d"] }
 bevy_mod_raycast = {version="0.3"}
+rand = "0.8.4"
 
 
 [profile.dev]
 opt-level = 3
-
-# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
-# [profile.dev.package."*"]
-# opt-level = 3
