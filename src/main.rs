@@ -1,5 +1,6 @@
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
+use std::ops::Range;
 
 use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
@@ -12,7 +13,7 @@ pub mod map_parser;
 enum Layer {
     World,
     Player,
-    // Enemies,
+    Enemies,
 }
 
 // ----------
@@ -36,6 +37,20 @@ struct PlayerAvatar;
 
 #[derive(Component)]
 struct Enemy;
+
+enum AnimationType {
+    Standing,
+    Walking,
+    Shooting,
+    Dying,
+}
+
+#[derive(Component)]
+struct EnemyAnimation {
+    pub frame: u8,
+    pub handle: Handle<Mesh>,
+    pub animation_type: AnimationType,
+}
 
 #[derive(Component)]
 struct Billboard;
@@ -118,7 +133,7 @@ fn spawn_game_world(
 pub fn spawn_player(mut commands: Commands, game_map: Res<GameMap>) {
     // choose player random spawn point
     let mut rng = thread_rng();
-    let position = game_map.empty_space.choose((&mut rng)).unwrap();
+    let position = game_map.empty_space.choose(&mut rng).unwrap();
     let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
 
     commands
@@ -165,12 +180,12 @@ pub fn spawn_enemies(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    wolfenstein_sprites: Res<WolfensteinSprites>,
 ) {
-    for _ in 0..15 {
+    for _ in 0..32 {
         // choose player random spawn point
         let mut rng = thread_rng();
-        let position = game_map.empty_space.choose((&mut rng)).unwrap();
+        let position = game_map.empty_space.choose(&mut rng).unwrap();
         let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
 
         let player = Player {
@@ -183,7 +198,7 @@ pub fn spawn_enemies(
                 Transform {
                     translation: Vec3::new(
                         (player.position.0) as f32,
-                        0.7,
+                        1.0,
                         (player.position.1) as f32,
                     ),
                     rotation: Quat::from_rotation_y(player.rotation),
@@ -201,21 +216,27 @@ pub fn spawn_enemies(
                     ..Default::default()
                 });
 
-                let mesh = meshes.add(Mesh::from(shape::Plane { size: 1.0 }));
+                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.6))));
 
                 cell.spawn_bundle(PbrBundle {
                     mesh: mesh.clone(),
-                    material: materials.add(Color::RED.into()),
+                    material: wolfenstein_sprites.guard_billboard_material.clone(),
                     transform: Transform {
                         translation: Vec3::ZERO,
-                        rotation: Quat::from_rotation_z(std::f32::consts::PI / 2.0),
                         ..Default::default()
                     },
                     ..Default::default()
                 })
-                .insert(Billboard);
+                .insert(Billboard)
+                .insert(EnemyAnimation {
+                    frame: 0,
+                    handle: mesh,
+                    animation_type: AnimationType::Walking,
+                })
+                .insert(AnimationTimer(Timer::from_seconds(0.3, true)))
+                .insert(RayCastMesh::<RaycastMarker>::default());
             })
-            .insert(CollisionShape::Sphere { radius: 0.7 })
+            .insert(CollisionShape::Sphere { radius: 0.8 })
             .insert(Velocity::from_linear(Vec3::ZERO))
             .insert(Acceleration::from_linear(Vec3::ZERO))
             .insert(RigidBody::Dynamic)
@@ -309,9 +330,7 @@ fn render_billboards(
     )>,
     parent_query: Query<(&Player, &GlobalTransform)>,
 ) {
-    let viewer_angle = q.q1().iter().last().unwrap().1.rotation.y;
     let viewer_transform = q.q1().iter().last().unwrap().1.translation;
-    let rot_z = Quat::from_rotation_z(std::f32::consts::PI / 2.0);
     // let child_query = ;
     // let parent_query = q.q2();
     for (parent, mut t) in q.q0().iter_mut() {
@@ -322,11 +341,13 @@ fn render_billboards(
         let delta_x = parent_position.x - viewer_transform.x;
         let angle = delta_x.atan2(delta_z);
 
-        let rot_y_1 = Quat::from_rotation_y(std::f32::consts::PI / 2.0);
-        let rot_y_2 = Quat::from_rotation_y(angle);
-        let rot_y_3 = Quat::from_rotation_y(-parent_rotation - std::f32::consts::PI / 2.0);
+        let rot_y = Quat::from_rotation_y(std::f32::consts::PI / 2.0);
 
-        t.rotation = rot_y_2 * rot_y_3 * rot_z;
+        let rot_y_1 = Quat::from_rotation_y(std::f32::consts::PI / 2.0);
+        let rot_y_2 = Quat::from_rotation_y(std::f32::consts::PI + angle - parent_rotation);
+        let rot_y_3 = Quat::from_rotation_y(-parent_rotation);
+
+        t.rotation = rot_y_2; // rot_y_1 * rot_y_2 * rot_y_3; //* rot_y;
     }
 }
 
@@ -366,32 +387,82 @@ fn event_gun_shot(
 pub struct WolfensteinSprites {
     pub face: Vec<Handle<Image>>,
     pub face_index: u8,
+
     pub gun: Vec<Handle<Image>>,
     pub gun_index: u8,
+
+    pub guard_billboard_material: Handle<StandardMaterial>,
+    pub guard_walking_animation: Vec<Vec<Vec<[f32; 2]>>>,
+    pub guard_standing_animation: Vec<Vec<Vec<[f32; 2]>>>,
 }
 
 impl FromWorld for WolfensteinSprites {
     fn from_world(world: &mut World) -> Self {
         let world = world.cell();
+
         let mut image_assets = world.get_resource_mut::<Assets<Image>>().unwrap();
+        let mut materials = world
+            .get_resource_mut::<Assets<StandardMaterial>>()
+            .unwrap();
+        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
 
+        // face
         let mut face: Vec<Handle<Image>> = Vec::new();
-
         face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1APIC)));
         face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1BPIC)));
         face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1CPIC)));
 
-        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
-
+        // gun
         let mut gun: Vec<Handle<Image>> = Vec::new();
-
         gun.push(asset_server.load("gun/gun_0.png"));
         gun.push(asset_server.load("gun/gun_1.png"));
         gun.push(asset_server.load("gun/gun_2.png"));
 
+        // soldier
+        let guard_billboard_material = materials.add(StandardMaterial {
+            base_color: Color::rgba(1.0, 1.0, 1.0, 1.0),
+            base_color_texture: Some(asset_server.load("guard-sheet.png")),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..Default::default()
+        });
+
+        fn gather_angle_animation_uvs(row: f32, frames: Range<u8>) -> Vec<Vec<[f32; 2]>> {
+            let mut frame_set: Vec<Vec<[f32; 2]>> = Vec::new();
+            let offset = 0.042;
+
+            for column in frames {
+                let mut uvs1: Vec<[f32; 2]> = Vec::<[f32; 2]>::new();
+                let column = column as f32;
+
+                uvs1.push([(row - 1.0) / 8.0 + offset, column / 7.0]);
+                uvs1.push([(row - 1.0) / 8.0 + offset, (column - 1.0) / 7.0]);
+                uvs1.push([row / 8.0 - offset, (column - 1.0) / 7.0]);
+                uvs1.push([row / 8.0 - offset, (column) / 7.0]);
+
+                frame_set.push(uvs1);
+            }
+
+            return frame_set;
+        }
+
+        fn gather_full_animation_uvs(frames: Range<u8>) -> Vec<Vec<Vec<[f32; 2]>>> {
+            let mut animations: Vec<Vec<Vec<[f32; 2]>>> = Vec::new();
+
+            for i in 1..9 {
+                let angle_animations = gather_angle_animation_uvs(i as f32, frames.clone());
+                animations.push(angle_animations);
+            }
+
+            return animations;
+        }
+
         return Self {
             face,
             gun,
+            guard_billboard_material,
+            guard_walking_animation: gather_full_animation_uvs(Range { start: 2, end: 6 }),
+            guard_standing_animation: gather_full_animation_uvs(Range { start: 1, end: 2 }),
             face_index: 0,
             gun_index: 0,
         };
@@ -484,6 +555,83 @@ fn animate_face(
     }
 }
 
+fn animate_enemy(
+    time: Res<Time>,
+    wolfenstein_sprites: Res<WolfensteinSprites>,
+    mut meshes: ResMut<Assets<Mesh>>,
+
+    mut q: QuerySet<(
+        QueryState<(&mut AnimationTimer, &Parent, &mut EnemyAnimation), With<Billboard>>,
+        QueryState<&GlobalTransform, With<PlayerPerspective>>,
+    )>,
+    parent_query: Query<(&Player, &GlobalTransform)>,
+) {
+    let player_transform = q.q1().iter().last().unwrap();
+    let player_vector = Vec3::X;
+    let player_position = player_transform.translation;
+
+    for (mut timer, parent, mut animation) in q.q0().iter_mut() {
+        timer.0.tick(time.delta());
+        if timer.0.just_finished() {
+            let parent_transform = parent_query.get(parent.0).unwrap().1;
+            let enemy_vector = parent_transform.forward().normalize();
+            let enemy_position = parent_transform.translation;
+
+            let mut angle =
+                f32::acos(player_vector.dot(enemy_vector)) * 180.0 / std::f32::consts::PI;
+            if angle < 0.0 {
+                angle += 360.0;
+            }
+
+            let delta_z = enemy_position.z - player_position.z;
+            let delta_x = enemy_position.x - player_position.x;
+
+            angle += delta_x.atan2(delta_z) * 180.0 / std::f32::consts::PI;
+            if angle < 0.0 {
+                angle += 360.0;
+            }
+
+            let mut index = 0;
+            // let angle_diff = (player_angle + enemy_angle) * 180.0 / std::f32::consts::PI;
+            if angle >= 0.0 && angle < 45.0 {
+                index = 0
+            } else if angle >= 45.0 && angle < 90.0 {
+                index = 1
+            } else if angle >= 90.0 && angle < 135.0 {
+                index = 2
+            } else if angle >= 135.0 && angle < 180.0 {
+                index = 3
+            } else if angle >= 180.0 && angle < 225.0 {
+                index = 4
+            } else if angle >= 225.0 && angle < 270.0 {
+                index = 5
+            } else if angle >= 270.0 && angle < 315.0 {
+                index = 6
+            } else if angle >= 315.0 && angle < 360.0 {
+                index = 7
+            }
+
+            let frameset = match animation.animation_type {
+                AnimationType::Standing => wolfenstein_sprites.guard_standing_animation.clone(),
+                AnimationType::Walking => wolfenstein_sprites.guard_walking_animation.clone(),
+                _ => Vec::new(),
+            };
+
+            if animation.frame >= (frameset[index].len() as u8 - 1) {
+                animation.frame = 0;
+            }
+
+            if let Some(mesh) = meshes.get_mut(animation.handle.clone()) {
+                let uv = frameset[index][animation.frame as usize].clone();
+
+                mesh.set_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+            }
+
+            animation.frame += 1;
+        }
+    }
+}
+
 fn draw_hud(mut commands: Commands, wolfenstein_sprites: Res<WolfensteinSprites>) {
     commands.spawn_bundle(UiCameraBundle::default());
 
@@ -560,7 +708,7 @@ fn main() {
         // Resources
         .insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
-        .insert_resource(DefaultPluginState::<RaycastMarker>::default())
+        .insert_resource(DefaultPluginState::<RaycastMarker>::default().with_debug_cursor())
         // Events
         .add_event::<EventGunShot>()
         // Plugins
@@ -578,6 +726,7 @@ fn main() {
         .add_system(control_player)
         .add_system(animate_face)
         .add_system(animate_gun)
+        .add_system(animate_enemy)
         .add_system(event_gun_shot)
         .add_system(render_billboards)
         // Initialize Resources

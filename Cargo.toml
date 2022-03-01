@@ -4,15 +4,15 @@ name = "bevystein"
 version = "0.0.1"
 
 [dependencies]
+benimator = "2.0.1"
 bevy = {version = "0.6.0"}
-bevy_tasks = "0.6.0"
 bevy-inspector-egui = {version = "0.8.0"}
-bevy_mod_picking = {version="0.5.2"}
 bevy_config_cam = "0.2.0"
-heron = { version = "2.0.1", features = ["3d"] }
-bevy_mod_raycast = {version="0.3"}
+bevy_mod_picking = {version = "0.5.2"}
+bevy_mod_raycast = {version = "0.3"}
+bevy_tasks = "0.6.0"
+heron = {version = "2.0.1", features = ["3d"]}
 rand = "0.8.4"
-
 
 [profile.dev]
 opt-level = 3
