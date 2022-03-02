@@ -13,6 +13,7 @@ bevy_mod_raycast = {version = "0.3"}
 bevy_tasks = "0.6.0"
 heron = {version = "2.0.1", features = ["3d"]}
 rand = "0.8.4"
+names = { version = "0.12.0", default-features = false }
 
 [profile.dev]
 opt-level = 3
