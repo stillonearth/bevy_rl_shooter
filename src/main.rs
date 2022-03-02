@@ -68,9 +68,6 @@ struct ScoreText;
 #[derive(Component)]
 struct TimeLeftText;
 
-#[derive(Component)]
-struct Hud2d;
-
 struct RaycastMarker;
 
 // ------
@@ -120,7 +117,7 @@ pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
     );
 
-    commands.spawn_bundle(UiCameraBundle::default());
+    // commands.spawn_bundle(UiCameraBundle::default());
     // root node
     commands
         .spawn_bundle(NodeBundle {
@@ -180,10 +177,9 @@ fn button_system(
     >,
 ) {
     for (interaction, mut color) in interaction_query.iter_mut() {
-        println!("!!");
         match *interaction {
             Interaction::Clicked => {
-                app_state.replace(AppState::InGame).unwrap();
+                app_state.set(AppState::InGame).unwrap();
             }
             Interaction::Hovered => {
                 *color = Color::GRAY.into();
@@ -195,8 +191,10 @@ fn button_system(
     }
 }
 
-fn clear_world(world: &mut World) {
-    world.clear_entities();
+fn clear_world(mut commands: Commands, mut q: Query<Entity>) {
+    for q in q.iter_mut() {
+        commands.entity(q).despawn();
+    }
 }
 
 // InGame
@@ -256,7 +254,7 @@ fn spawn_game_world(
 }
 
 pub fn init_round(mut commands: Commands) {
-    commands.insert_resource(RoundTimer(Timer::from_seconds(10.0, false)));
+    commands.insert_resource(RoundTimer(Timer::from_seconds(100.0, false)));
 }
 
 pub fn spawn_player(mut commands: Commands, game_map: Res<GameMap>) {
@@ -494,7 +492,7 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
     );
 
-    commands.spawn_bundle(UiCameraBundle::default());
+    // commands.spawn_bundle(UiCameraBundle::default());
     // root node
     commands
         .spawn_bundle(NodeBundle {
@@ -955,9 +953,11 @@ fn animate_enemy(
     }
 }
 
-fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
+fn spawn_ui_camera(mut commands: Commands) {
     commands.spawn_bundle(UiCameraBundle::default());
+}
 
+fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
     let text = Text::with_section(
         "",
         TextStyle {
@@ -985,7 +985,6 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
             color: Color::BLUE.clone().into(),
             ..Default::default()
         })
-        .insert(Hud2d)
         .with_children(|parent| {
             parent
                 .spawn_bundle(TextBundle {
@@ -1039,12 +1038,6 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
         });
 }
 
-fn hide_hud(mut commands: Commands, mut q: Query<(Entity, &Hud2d)>) {
-    for (e, _) in q.iter_mut() {
-        commands.entity(e).despawn();
-    }
-}
-
 fn update_hud(
     player_query: Query<&Player>,
     mut score_text_query: Query<&mut Text, With<ScoreText>>,
@@ -1078,8 +1071,8 @@ fn check_termination(
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
-    if player_1.health == 0 || seconds_left == 1 {
-        app_state.replace(AppState::RoundOver).unwrap();
+    if player_1.health == 0 || seconds_left == 0 {
+        app_state.set(AppState::RoundOver).unwrap();
     }
 }
 
@@ -1112,8 +1105,7 @@ fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
                     ..Default::default()
                 })
                 .insert(Weapon)
-                .insert(AnimationTimer(Timer::from_seconds(0.1, true)))
-                .insert(Hud2d);
+                .insert(AnimationTimer(Timer::from_seconds(0.1, true)));
         });
 }
 
@@ -1133,17 +1125,20 @@ fn main() {
         // Plugins
         .add_plugins(DefaultPlugins)
         .add_plugin(PhysicsPlugin::default())
-        .add_plugin(WorldInspectorPlugin::new())
+        // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // State chain
         .add_state(AppState::MainMenu)
-        .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(main_screen))
-        .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
         .add_system_set(
-            SystemSet::on_exit(AppState::MainMenu).with_system(clear_world.exclusive_system()),
+            SystemSet::on_enter(AppState::MainMenu)
+                .with_system(spawn_ui_camera)
+                .with_system(main_screen),
         )
+        .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
+        .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
+                .with_system(spawn_ui_camera)
                 .with_system(spawn_game_world)
                 .with_system(spawn_player)
                 .with_system(spawn_enemies)
@@ -1165,8 +1160,12 @@ fn main() {
                 .with_system(event_gun_shot)
                 .with_system(event_damage),
         )
-        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(hide_hud))
-        .add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over))
+        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world))
+        .add_system_set(
+            SystemSet::on_enter(AppState::RoundOver)
+                .with_system(spawn_ui_camera)
+                .with_system(round_over),
+        )
         .add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system))
         .add_system_set(
             SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
