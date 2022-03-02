@@ -5,11 +5,13 @@ Wolfenstein in Bevy
 <br />
 February 2022
 
+https://user-images.githubusercontent.com/97428129/156439447-a288eada-f964-4ec5-a0a2-1653137eb090.mp4
+
 ## Project Description
 
 This project is an attempt to build minimal FPS game with Bevy Game Engine (0.6.0) and create AI agent to play it competitively with human player.
 
-![image](https://user-images.githubusercontent.com/97428129/155894061-1e4f3869-0167-483c-a4c5-185193b58ba7.png)
+
 
 ### AI Environment
 
@@ -19,6 +21,7 @@ This project is an attempt to build minimal FPS game with Bevy Game Engine (0.6.
 * Survive to the end of round
 
 **Observations**
+
 
 * Raw pixel input (300x300)
 
