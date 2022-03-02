@@ -105,7 +105,7 @@ pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
     let text = Text::with_section(
-        "Royal Battle Bevystein   ",
+        "Royal Battle Bevystein",
         TextStyle {
             font_size: 75.0,
             font: font.clone(),
