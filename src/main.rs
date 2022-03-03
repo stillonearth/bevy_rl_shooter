@@ -1,3 +1,4 @@
+use bevy::utils::Instant;
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use std::ops::Range;
@@ -5,6 +6,7 @@ use std::ops::Range;
 use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
+use big_brain::prelude::*;
 use heron::*;
 use names::Generator;
 
@@ -25,7 +27,7 @@ struct Player {
     position: (f32, f32),
     rotation: f32,
     name: String,
-    health: u8,
+    health: u16,
     score: u8,
 }
 
@@ -35,7 +37,7 @@ struct PlayerPerspective;
 #[derive(Component)]
 struct PlayerAvatar;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum AnimationType {
     Standing,
     Walking,
@@ -43,7 +45,7 @@ enum AnimationType {
     Dying,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct EnemyAnimation {
     pub frame: u8,
     pub handle: Handle<Mesh>,
@@ -73,7 +75,7 @@ struct RaycastMarker;
 // ------
 // Events
 // ------
-
+#[derive(Debug)]
 pub struct EventGunShot {
     from: String,
 }
@@ -254,17 +256,21 @@ fn spawn_game_world(
 }
 
 pub fn init_round(mut commands: Commands) {
-    commands.insert_resource(RoundTimer(Timer::from_seconds(100.0, false)));
+    commands.insert_resource(RoundTimer(Timer::from_seconds(300.0, false)));
 }
 
-pub fn spawn_player(mut commands: Commands, game_map: Res<GameMap>) {
+pub fn spawn_player(
+    mut commands: Commands,
+    game_map: Res<GameMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
     let player = Player {
         position: (pos.0 as f32, pos.1 as f32),
         rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
         name: "Player 1".to_string(),
-        health: 100,
+        health: 1000,
         score: 0,
     };
 
@@ -292,6 +298,18 @@ pub fn spawn_player(mut commands: Commands, game_map: Res<GameMap>) {
                 ..Default::default()
             })
             .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
+
+            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+            cell.spawn_bundle(PbrBundle {
+                mesh: mesh.clone(),
+                transform: Transform {
+                    rotation: Quat::from_rotation_y(std::f32::consts::PI),
+                    ..Default::default()
+                },
+                visibility: Visibility { is_visible: true },
+                ..Default::default()
+            })
+            .insert(RayCastMesh::<RaycastMarker>::default());
         })
         .insert(CollisionShape::Sphere { radius: 1.0 })
         .insert(PlayerPerspective)
@@ -305,7 +323,8 @@ pub fn spawn_player(mut commands: Commands, game_map: Res<GameMap>) {
         })
         .insert(CollisionLayers::new(Layer::Player, Layer::World))
         .insert(RotationConstraints::lock())
-        .insert(player);
+        .insert(player)
+        .insert(BloodThirst { enemies_near: 0 });
 }
 
 pub fn spawn_enemies(
@@ -359,6 +378,19 @@ pub fn spawn_enemies(
                 })
                 .insert(AnimationTimer(Timer::from_seconds(0.3, true)))
                 .insert(RayCastMesh::<RaycastMarker>::default());
+
+                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+                cell.spawn_bundle(PbrBundle {
+                    mesh: mesh.clone(),
+                    material: wolfenstein_sprites.guard_billboard_material.clone(),
+                    transform: Transform {
+                        translation: Vec3::ZERO,
+                        ..Default::default()
+                    },
+                    visibility: Visibility { is_visible: false },
+                    ..Default::default()
+                })
+                .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
             })
             .insert(CollisionShape::Sphere { radius: 0.8 })
             .insert(Velocity::from_linear(Vec3::ZERO))
@@ -370,7 +402,18 @@ pub fn spawn_enemies(
             })
             .insert(player)
             .insert(CollisionLayers::new(Layer::Player, Layer::World))
-            .insert(RotationConstraints::lock());
+            .insert(RotationConstraints::lock())
+            .insert(BloodThirst { enemies_near: 0 })
+            .insert(
+                Thinker::build()
+                    .picker(FirstToScore { threshold: 0.0 })
+                    .when(
+                        BloodThirsty,
+                        Kill {
+                            last_action: Instant::now(),
+                        },
+                    ),
+            );
     }
 }
 
@@ -480,7 +523,7 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
     let text = Text::with_section(
-        "GAME OVER",
+        "YOU WIN",
         TextStyle {
             font_size: 75.0,
             font: font.clone(),
@@ -526,7 +569,7 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .with_children(|parent| {
                     parent.spawn_bundle(TextBundle {
                         text: Text::with_section(
-                            "New Game",
+                            "New Round",
                             TextStyle {
                                 font: font.clone(),
                                 font_size: 30.0,
@@ -553,8 +596,8 @@ fn event_gun_shot(
     mut commands: Commands,
 
     mut gun_sprite_query: Query<(&Weapon, &mut UiImage)>,
-    mut shooting_query: Query<&RayCastSource<RaycastMarker>>,
-    player_query: Query<(&Children, &Player)>,
+    shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
+    player_query: Query<(Entity, &Children, &Player)>,
 
     mut gunshot_event: EventReader<EventGunShot>,
     mut event_damage: EventWriter<EventDamage>,
@@ -562,35 +605,51 @@ fn event_gun_shot(
     mut wolfenstein_sprites: ResMut<GameAssets>,
 ) {
     for gunshot_event in gunshot_event.iter() {
-        for (_, mut ui_image) in gun_sprite_query.iter_mut() {
-            wolfenstein_sprites.gun_index = 1;
-            ui_image.0 = wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
-                .clone()
-                .into();
+        if gunshot_event.from == "Player 1".to_string() {
+            for (_, mut ui_image) in gun_sprite_query.iter_mut() {
+                wolfenstein_sprites.gun_index = 1;
+                ui_image.0 = wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
+                    .clone()
+                    .into();
+            }
         }
 
-        for e in shooting_query.iter_mut() {
-            let r = e.intersect_top();
-            if r.is_none() {
-                return;
+        let (_, raycast_source) = shooting_query
+            .iter()
+            .find(|(p, _)| {
+                !player_query
+                    .iter()
+                    .find(|(e, _, _p)| e.id() == p.id() && _p.name == gunshot_event.from)
+                    .is_none()
+            })
+            .unwrap();
+
+        let r = raycast_source.intersect_top();
+        if r.is_none() {
+            continue;
+        }
+
+        let hit_entity = r.unwrap().0;
+
+        let mut player_hit = false;
+        // println!("{:?}", r.1.);
+        for (_, children, enemy) in player_query.iter() {
+            let other_entity = children.iter().find(|c| c.id() == hit_entity.id());
+            if other_entity.is_none() {
+                continue;
             }
-            let hit_entity = r.unwrap().0;
 
-            for (children, enemy) in player_query.iter() {
-                let other_entity = children.iter().find(|c| c.id() == hit_entity.id());
-                if other_entity.is_none() {
-                    continue;
-                }
+            event_damage.send(EventDamage {
+                from: gunshot_event.from.clone(),
+                to: enemy.name.clone(),
+            });
 
-                event_damage.send(EventDamage {
-                    from: gunshot_event.from.clone(),
-                    to: enemy.name.clone(),
-                });
+            player_hit = true;
+            continue;
+        }
 
-                return;
-            }
-
-            // despawn a wall
+        // despawn a wall
+        if !player_hit {
             commands.entity(hit_entity).despawn();
         }
     }
@@ -603,6 +662,12 @@ fn event_damage(
     mut event_damage: EventReader<EventDamage>,
 ) {
     for damage_event in event_damage.iter() {
+        if damage_event.from == damage_event.to {
+            continue;
+        }
+
+        println!("{:?}", damage_event);
+
         let hit_entity = player_query.iter().find(|p| p.2.name == damage_event.to);
         if hit_entity.is_none() {
             continue;
@@ -665,6 +730,7 @@ pub struct GameAssets {
     pub guard_walking_animation: Vec<Vec<Vec<[f32; 2]>>>,
     pub guard_standing_animation: Vec<Vec<Vec<[f32; 2]>>>,
     pub guard_dying_animation: Vec<Vec<[f32; 2]>>,
+    pub guard_shooting_animation: Vec<Vec<[f32; 2]>>,
 
     pub font: Handle<Font>,
 }
@@ -696,6 +762,7 @@ impl FromWorld for GameAssets {
             base_color: Color::rgba(1.0, 1.0, 1.0, 1.0),
             base_color_texture: Some(asset_server.load("guard-sheet.png")),
             unlit: true,
+            double_sided: true,
             alpha_mode: AlphaMode::Blend,
             ..Default::default()
         });
@@ -765,6 +832,11 @@ impl FromWorld for GameAssets {
             guard_walking_animation: gather_full_animation_uvs(Range { start: 2, end: 6 }),
             guard_standing_animation: gather_full_animation_uvs(Range { start: 1, end: 2 }),
             guard_dying_animation: gather_row_animation_uvs(6.0, Range { start: 1, end: 6 }, 0.0),
+            guard_shooting_animation: gather_row_animation_uvs(
+                7.0,
+                Range { start: 1, end: 4 },
+                0.042,
+            ),
             face_index: 0,
             gun_index: 0,
         };
@@ -886,6 +958,10 @@ fn animate_enemy(
                 animations = wolfenstein_sprites.guard_dying_animation.clone();
             }
 
+            if animation.animation_type == AnimationType::Shooting {
+                animations = wolfenstein_sprites.guard_shooting_animation.clone();
+            }
+
             if (animation.animation_type == AnimationType::Standing)
                 || (animation.animation_type == AnimationType::Walking)
             {
@@ -943,6 +1019,10 @@ fn animate_enemy(
             }
 
             if animation.frame >= (animations.len() as u8 - 1) {
+                if animation.animation_type == AnimationType::Shooting {
+                    animation.animation_type = AnimationType::Standing;
+                }
+
                 if animation.animation_type != AnimationType::Dying {
                     animation.frame = 0;
                 }
@@ -1047,8 +1127,8 @@ fn update_hud(
 ) {
     let player_1 = player_query.iter().find(|p| p.name == "Player 1");
 
-    for (mut text) in score_text_query.iter_mut() {
-        let str = format!("SCORE {}", player_1.unwrap().score).to_string();
+    for mut text in score_text_query.iter_mut() {
+        let str = format!("HEALTH {}", player_1.unwrap().health).to_string();
         text.sections[0].value = str;
     }
 
@@ -1109,6 +1189,165 @@ fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
         });
 }
 
+// --
+// AI
+// --
+
+#[derive(Component, Debug)]
+pub struct BloodThirst {
+    pub enemies_near: u8,
+}
+
+fn bloodthirst_system(mut thirsts: Query<(&GlobalTransform, &Player, &mut BloodThirst)>) {
+    let _transforms: Vec<(GlobalTransform, Player)> = thirsts
+        .iter()
+        .map(|(p, g, _)| (p.clone(), g.clone()))
+        .collect();
+
+    for (gt, player, mut thirst) in thirsts.iter_mut() {
+        if player.health == 0 {
+            thirst.enemies_near = 0;
+        } else {
+            thirst.enemies_near = _transforms
+                .iter()
+                .filter(|(g, p)| {
+                    if p.health == 0 {
+                        return false;
+                    }
+                    let distance = ((gt.translation.x - g.translation.x).powf(2.0)
+                        + (gt.translation.z - g.translation.z).powf(2.0))
+                    .sqrt();
+                    return (distance < 20.0) && (distance != 0.0);
+                })
+                .count() as u8;
+        }
+    }
+}
+
+#[derive(Clone, Component, Debug)]
+pub struct Kill {
+    last_action: Instant,
+}
+
+fn kill_action_system(
+    mut commands: Commands,
+    mut event_gun_shot: EventWriter<EventGunShot>,
+    mut bloodthirsts: Query<(
+        Entity,
+        &mut Transform,
+        &mut GlobalTransform,
+        &mut BloodThirst,
+        &Player,
+    )>,
+    mut query: Query<(&Actor, &mut ActionState, &mut Kill)>,
+    enemy_animations: Query<(Entity, &Parent, &mut EnemyAnimation)>,
+
+    mut event_damage: EventWriter<EventDamage>,
+) {
+    let players: Vec<(Entity, GlobalTransform, Player)> = bloodthirsts
+        .iter()
+        .map(|(e, _, t, _, p)| (e.clone(), t.clone(), p.clone()))
+        .collect();
+
+    for (Actor(actor), mut state, mut kill) in query.iter_mut() {
+        if let Ok(result) = bloodthirsts.get_mut(*actor) {
+            let transform = result.1;
+            let global_transform = result.2;
+            let thirst = result.3;
+            let player = result.4;
+
+            let e = enemy_animations
+                .iter()
+                .find(|p| p.1.id() == actor.id())
+                .unwrap();
+
+            let mut animation = e.2.clone();
+            let entity = e.0;
+            let parent = e.1;
+
+            match *state {
+                ActionState::Requested => {
+                    *state = ActionState::Executing;
+                }
+                ActionState::Executing => {
+                    if thirst.enemies_near == 0 {
+                        if player.health == 0 {
+                            animation.animation_type = AnimationType::Dying;
+                        }
+                        commands.entity(entity).insert(animation);
+                        *state = ActionState::Success;
+                    } else {
+                        // turn to next target
+
+                        let duration = kill.last_action.elapsed().as_secs_f32();
+                        if duration <= 0.5 {
+                            continue;
+                        }
+
+                        animation.animation_type = AnimationType::Shooting;
+                        animation.frame = 0;
+                        commands.entity(entity).insert(animation);
+
+                        kill.last_action = Instant::now();
+
+                        let near_enemy = players.iter().find(|(_, gt, e)| {
+                            if e.health == 0 {
+                                return false;
+                            }
+                            let distance = ((gt.translation.x - global_transform.translation.x)
+                                .powf(2.0)
+                                + (gt.translation.z - global_transform.translation.z).powf(2.0))
+                            .sqrt();
+                            return distance <= 20.0 && distance != 0.0;
+                        });
+
+                        if near_enemy.is_none() {
+                            continue;
+                        }
+
+                        let rot_y = Quat::from_rotation_y(-player.rotation);
+                        let fwd_vec = rot_y.mul_vec3(Vec3::X) * 3.0;
+
+                        commands
+                            .entity(parent.0)
+                            .insert(Velocity::from_linear(fwd_vec));
+
+                        let mut rng = rand::thread_rng();
+
+                        if rng.gen_range(0..10) > 8 {
+                            event_damage.send(EventDamage {
+                                from: player.name.clone(),
+                                to: near_enemy.unwrap().2.name.clone(),
+                            })
+                        }
+                    }
+                }
+                // All Actions should make sure to handle cancellations!
+                ActionState::Cancelled => {
+                    *state = ActionState::Failure;
+                }
+                _ => {
+                    animation.animation_type = AnimationType::Standing;
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Component, Debug)]
+pub struct BloodThirsty;
+
+pub fn bloodthirsty_scorer_system(
+    thirsts: Query<&BloodThirst>,
+    mut query: Query<(&Actor, &mut Score), With<BloodThirsty>>,
+) {
+    for (Actor(actor), mut score) in query.iter_mut() {
+        if let Ok(thirst) = thirsts.get(*actor) {
+            score.set((thirst.enemies_near as f32) / 100.);
+        }
+    }
+}
+
 // -----------
 // Entry Point
 // -----------
@@ -1118,15 +1357,16 @@ fn main() {
         // Resources
         .insert_resource(ClearColor(Color::WHITE))
         .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
-        .insert_resource(DefaultPluginState::<RaycastMarker>::default())
+        .insert_resource(DefaultPluginState::<RaycastMarker>::default().with_debug_cursor())
         // Events
         .add_event::<EventGunShot>()
         .add_event::<EventDamage>()
         // Plugins
         .add_plugins(DefaultPlugins)
         .add_plugin(PhysicsPlugin::default())
-        // .add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
+        .add_plugin(BigBrainPlugin)
         // State chain
         .add_state(AppState::MainMenu)
         .add_system_set(
@@ -1170,6 +1410,10 @@ fn main() {
         .add_system_set(
             SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
         )
+        // AI -- global due to
+        .add_system(bloodthirst_system)
+        .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
+        .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
         .init_resource::<GameAssets>()
