@@ -9,8 +9,9 @@ use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh,
 use big_brain::prelude::*;
 use heron::*;
 use names::Generator;
+use serde::{Deserialize, Serialize};
 
-pub mod map_parser;
+mod map;
 
 #[derive(PhysicsLayer)]
 enum Layer {
@@ -107,7 +108,7 @@ pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
     let text = Text::with_section(
-        "Royal Battle Bevystein",
+        "ROYAL BATTLE BEVYSTEIN",
         TextStyle {
             font_size: 75.0,
             font: font.clone(),
@@ -152,7 +153,7 @@ pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .with_children(|parent| {
                     parent.spawn_bundle(TextBundle {
                         text: Text::with_section(
-                            "New Game",
+                            "NEW ROUND",
                             TextStyle {
                                 font: font.clone(),
                                 font_size: 30.0,
@@ -208,9 +209,8 @@ fn spawn_game_world(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Plane
-    let maps = map_parser::load_maps("shareware/MAPHEAD.WL1", "shareware/GAMEMAPS.WL1", Some(1));
-    let map = &maps[0];
-    let size = map.width_n_tiles * map.height_n_tiles;
+
+    let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
     }));
@@ -223,10 +223,7 @@ fn spawn_game_world(
         })
         .insert(RigidBody::Static)
         .insert(CollisionShape::HeightField {
-            size: Vec2::new(
-                (100 * map.width_n_tiles) as f32,
-                (100 * map.height_n_tiles) as f32,
-            ),
+            size: Vec2::new((100 * 255) as f32, (100 * 255) as f32),
             heights: vec![
                 vec![100.5, 0.8, 0., 0., 3000.0],
                 vec![0.8, 0.2, 0., 0., 300.0],
@@ -569,7 +566,7 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .with_children(|parent| {
                     parent.spawn_bundle(TextBundle {
                         text: Text::with_section(
-                            "New Round",
+                            "NEW ROUND",
                             TextStyle {
                                 font: font.clone(),
                                 font_size: 30.0,
@@ -720,9 +717,6 @@ fn event_damage(
 // ---------
 
 pub struct GameAssets {
-    pub face: Vec<Handle<Image>>,
-    pub face_index: u8,
-
     pub gun: Vec<Handle<Image>>,
     pub gun_index: u8,
 
@@ -744,12 +738,6 @@ impl FromWorld for GameAssets {
             .get_resource_mut::<Assets<StandardMaterial>>()
             .unwrap();
         let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
-
-        // face
-        let mut face: Vec<Handle<Image>> = Vec::new();
-        face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1APIC)));
-        face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1BPIC)));
-        face.push(image_assets.add(bevystein::elden::get_image(bevystein::cache::FACE1CPIC)));
 
         // gun
         let mut gun: Vec<Handle<Image>> = Vec::new();
@@ -825,8 +813,8 @@ impl FromWorld for GameAssets {
         }
 
         return Self {
-            face,
             gun,
+            gun_index: 0,
             font: asset_server.load("Roboto-Regular.ttf"),
             guard_billboard_material,
             guard_walking_animation: gather_full_animation_uvs(Range { start: 2, end: 6 }),
@@ -837,12 +825,11 @@ impl FromWorld for GameAssets {
                 Range { start: 1, end: 4 },
                 0.042,
             ),
-            face_index: 0,
-            gun_index: 0,
         };
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GameMap {
     pub empty_space: Vec<(usize, usize)>,
     pub walls: Vec<(usize, usize)>,
@@ -850,36 +837,8 @@ pub struct GameMap {
 
 impl FromWorld for GameMap {
     fn from_world(_: &mut World) -> Self {
-        let maps =
-            map_parser::load_maps("shareware/MAPHEAD.WL1", "shareware/GAMEMAPS.WL1", Some(1));
-        let map = &maps[0];
-
-        let mut game_map = GameMap {
-            empty_space: Vec::new(),
-            walls: Vec::new(),
-        };
-
-        // Cubes as walls
-        map.plane0
-            .as_ref()
-            .unwrap()
-            .chunks_exact(2)
-            .map(|word| u16::from_le_bytes(word.try_into().unwrap()))
-            .enumerate()
-            .for_each(|(word_i, word)| {
-                let x = word_i % usize::from(map.width_n_tiles) * 2;
-                let z = word_i / usize::from(map.height_n_tiles) * 2;
-
-                if word == 90 {
-                } else if word == 91 {
-                } else if word < 107 {
-                    game_map.walls.push((x, z))
-                } else {
-                    game_map.empty_space.push((x, z))
-                }
-            });
-
-        return game_map;
+        let deserialized: GameMap = serde_json::from_str(&map::JSON).unwrap();
+        return deserialized;
     }
 }
 
@@ -906,27 +865,6 @@ fn animate_gun(
             }
 
             ui_image.0 = wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
-                .clone()
-                .into();
-        }
-    }
-}
-
-fn animate_face(
-    time: Res<Time>,
-    mut wolfenstein_sprites: ResMut<GameAssets>,
-    mut query: Query<(&PlayerAvatar, &mut AnimationTimer, &mut UiImage)>,
-) {
-    for (_, mut timer, mut ui_image) in query.iter_mut() {
-        timer.0.tick(time.delta());
-
-        if timer.0.just_finished() {
-            wolfenstein_sprites.face_index += 1;
-            if wolfenstein_sprites.face_index >= (wolfenstein_sprites.face.len() as u8) {
-                wolfenstein_sprites.face_index = 0;
-            }
-
-            ui_image.0 = wolfenstein_sprites.face[wolfenstein_sprites.face_index as usize]
                 .clone()
                 .into();
         }
@@ -1041,9 +979,9 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
     let text = Text::with_section(
         "",
         TextStyle {
-            font_size: 75.0,
+            font_size: 45.0,
             font: game_assets.font.clone(),
-            color: Color::rgb(1.0, 1.0, 1.0),
+            color: Color::rgb(0.0, 0.0, 0.0),
         },
         TextAlignment {
             horizontal: HorizontalAlign::Center,
@@ -1054,15 +992,17 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
-                size: Size::new(Val::Percent(100.0), Val::Px(180.0)),
+                // size: Size::new(Val::Percent(100.0), Val::Auto),
                 position_type: PositionType::Absolute,
                 position: Rect {
+                    left: Val::Px(50.0),
+                    top: Val::Px(25.0),
                     ..Default::default()
                 },
                 justify_content: JustifyContent::Center,
                 ..Default::default()
             },
-            color: Color::BLUE.clone().into(),
+            visibility: Visibility { is_visible: false },
             ..Default::default()
         })
         .with_children(|parent| {
@@ -1070,13 +1010,8 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
                 .spawn_bundle(TextBundle {
                     text: text.clone(),
                     style: Style {
-                        size: Size::new(Val::Percent(100.0), Val::Px(180.0)),
+                        // size: Size::new(Val::Percent(100.0), Val::Auto),
                         position_type: PositionType::Relative,
-                        position: Rect {
-                            left: Val::Px(45.0),
-                            bottom: Val::Px(52.5),
-                            ..Default::default()
-                        },
                         justify_content: JustifyContent::Center,
                         ..Default::default()
                     },
@@ -1085,28 +1020,13 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
                 .insert(ScoreText);
 
             parent
-                .spawn_bundle(ImageBundle {
-                    style: Style {
-                        size: Size::new(Val::Px(320.), Val::Px(180.)),
-                        ..Default::default()
-                    },
-                    image: game_assets.face[game_assets.face_index as usize]
-                        .clone()
-                        .into(),
-                    ..Default::default()
-                })
-                .insert(PlayerAvatar)
-                .insert(AnimationTimer(Timer::from_seconds(2.0, true)));
-
-            parent
                 .spawn_bundle(TextBundle {
                     text: text.clone(),
                     style: Style {
-                        size: Size::new(Val::Percent(100.0), Val::Px(180.0)),
+                        size: Size::new(Val::Percent(100.0), Val::Auto),
                         position_type: PositionType::Relative,
                         position: Rect {
-                            left: Val::Px(45.0),
-                            bottom: Val::Px(52.5),
+                            left: Val::Px(55.0),
                             ..Default::default()
                         },
                         justify_content: JustifyContent::Center,
@@ -1160,10 +1080,10 @@ fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
-                size: Size::new(Val::Percent(100.0), Val::Percent(65.0)),
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
                 position_type: PositionType::Absolute,
                 position: Rect {
-                    bottom: Val::Px(180.),
+                    bottom: Val::Px(0.),
                     ..Default::default()
                 },
                 justify_content: JustifyContent::Center,
@@ -1189,9 +1109,9 @@ fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
         });
 }
 
-// --
-// AI
-// --
+// ----------
+// --- AI ---
+// ----------
 
 #[derive(Component, Debug)]
 pub struct BloodThirst {
@@ -1357,14 +1277,14 @@ fn main() {
         // Resources
         .insert_resource(ClearColor(Color::WHITE))
         .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
-        .insert_resource(DefaultPluginState::<RaycastMarker>::default().with_debug_cursor())
+        .insert_resource(DefaultPluginState::<RaycastMarker>::default())
         // Events
         .add_event::<EventGunShot>()
         .add_event::<EventDamage>()
         // Plugins
         .add_plugins(DefaultPlugins)
         .add_plugin(PhysicsPlugin::default())
-        .add_plugin(WorldInspectorPlugin::new())
+        // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
         // State chain
@@ -1391,7 +1311,6 @@ fn main() {
                 // Game Systems
                 .with_system(check_termination)
                 .with_system(control_player)
-                .with_system(animate_face)
                 .with_system(animate_gun)
                 .with_system(animate_enemy)
                 .with_system(render_billboards)
