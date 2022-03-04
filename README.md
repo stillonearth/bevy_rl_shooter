@@ -1,5 +1,4 @@
 # [DRAFT] Minimal FPS Battle Royale Game Environment with Neural Agents using Variant of Deep-Q-Network
-Wolfenstein in Bevy
 
 **Sergei Surovtsev** <<ssurovsev@gmail.com>>
 <br />
