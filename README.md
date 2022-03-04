@@ -28,11 +28,11 @@ This project is an attempt to build minimal FPS game with Bevy Game Engine (0.6.
 
 Currently working
 
-* [v] Collisions
-* [v] Shooting
-* [v] Map consturction
-* [v] Enemies
-* [v] Player health
+* [x] Collisions
+* [x] Shooting
+* [x] Map consturction
+* [x] Enemies
+* [x] Player health
 
 TODO:
 
