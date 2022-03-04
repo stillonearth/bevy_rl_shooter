@@ -329,6 +329,7 @@ pub fn spawn_enemies(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     wolfenstein_sprites: Res<GameAssets>,
+    asset_server: Res<AssetServer>,
 ) {
     for _ in 0..32 {
         // choose player random spawn point
@@ -336,25 +337,20 @@ pub fn spawn_enemies(
         let pos = game_map.empty_space.choose(&mut rng).unwrap();
         let player = Player {
             position: (pos.0 as f32, pos.1 as f32),
-            rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
+            rotation: 3.14 / 2.0 * rng.gen_range(0.0..std::f32::consts::PI * 2.0),
             name: Generator::default().next().unwrap(),
             health: 100,
             score: 0,
         };
 
+        let transform = Transform {
+            translation: Vec3::new((player.position.0) as f32, 1.0, (player.position.1) as f32),
+            rotation: Quat::from_rotation_y(player.rotation),
+            ..Default::default()
+        };
+
         commands
-            .spawn_bundle((
-                Transform {
-                    translation: Vec3::new(
-                        (player.position.0) as f32,
-                        1.0,
-                        (player.position.1) as f32,
-                    ),
-                    rotation: Quat::from_rotation_y(player.rotation),
-                    ..Default::default()
-                },
-                GlobalTransform::identity(),
-            ))
+            .spawn_bundle((transform, GlobalTransform::identity()))
             .with_children(|cell| {
                 let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
 
@@ -388,13 +384,13 @@ pub fn spawn_enemies(
                     ..Default::default()
                 })
                 .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
+
+                // cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
             })
             .insert(CollisionShape::Sphere { radius: 0.8 })
-            .insert(Velocity::from_linear(Vec3::ZERO))
-            .insert(Acceleration::from_linear(Vec3::ZERO))
             .insert(RigidBody::Dynamic)
             .insert(PhysicMaterial {
-                density: 200.0,
+                density: 1.0,
                 ..Default::default()
             })
             .insert(player)
@@ -885,6 +881,7 @@ fn animate_enemy(
     let player_transform = q.q1().iter().last().unwrap();
     let player_vector = Vec3::X;
     let player_position = player_transform.translation;
+    let player_fwd = player_transform.forward().normalize();
 
     for (mut timer, parent, mut animation) in q.q0().iter_mut() {
         timer.0.tick(time.delta());
@@ -911,11 +908,12 @@ fn animate_enemy(
                 };
 
                 let parent_transform = parent_query.get(parent.0).unwrap().1;
-                let enemy_vector = parent_transform.forward().normalize();
+                let parent_player = parent_query.get(parent.0).unwrap().0;
+                let enemy_fwd = parent_transform.forward().normalize();
                 let enemy_position = parent_transform.translation;
 
                 let mut angle =
-                    f32::acos(player_vector.dot(enemy_vector)) * 180.0 / std::f32::consts::PI;
+                    f32::acos(player_vector.dot(enemy_fwd)) * 180.0 / std::f32::consts::PI;
                 if angle < 0.0 {
                     angle += 360.0;
                 }
@@ -927,6 +925,8 @@ fn animate_enemy(
                 if angle < 0.0 {
                     angle += 360.0;
                 }
+
+                // println!("{}", angle);
 
                 let mut index = 0;
                 if angle >= 0.0 && angle < 45.0 {
