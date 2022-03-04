@@ -73,6 +73,8 @@ TODO:
 
 Inspired by [rustenstein](https://github.com/AdRoll/rustenstein) by AdRoll. Map & texture parsing code grabbed from it.
 
+Uses assets from wolfenstein 3D. Open Sourced by John Carmack https://github.com/id-Software/wolf3d
+
 ## References
 
 * [1] Sergei Surovtsev, [Using Deep-Q-Networks (DQN) for solving Unity ML Agents Banana Collector Discreet Control Environment and Evaluating DQN Improvements](https://github.com/cwiz/DRLND-Project-Navigation/blob/master/WRITEUP.md), 2019
