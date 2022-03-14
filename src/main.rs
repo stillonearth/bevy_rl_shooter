@@ -31,7 +31,7 @@ struct Player {
     rotation: f32,
     name: String,
     health: u16,
-    score: u8,
+    score: u16,
 }
 
 #[derive(Component)]
@@ -405,6 +405,7 @@ pub fn spawn_enemies(
                 ..Default::default()
             })
             .insert(player)
+            .insert(Velocity::from_linear(Vec3::ZERO))
             .insert(CollisionLayers::new(Layer::Player, Layer::World))
             .insert(RotationConstraints::lock())
             .insert(BloodThirst { enemies_near: 0 })
@@ -661,7 +662,7 @@ fn event_gun_shot(
 
 fn event_damage(
     mut commands: Commands,
-    player_query: Query<(Entity, &Children, &mut Player)>,
+    mut player_query: Query<(Entity, &Children, &mut Player)>,
     billboard_query: Query<(Entity, &EnemyAnimation, &Billboard)>,
     mut event_damage: EventReader<EventDamage>,
 ) {
@@ -670,50 +671,39 @@ fn event_damage(
             continue;
         }
 
-        let hit_entity = player_query.iter().find(|p| p.2.name == damage_event.to);
-        if hit_entity.is_none() {
-            continue;
-        }
-        let entity = hit_entity.unwrap().0;
-        let children = hit_entity.unwrap().1;
-        let mut hit_player = hit_entity.unwrap().2.clone();
-
-        if hit_player.health == 0 {
-            return;
-        }
-
-        hit_player.health -= 100;
-        commands.entity(entity).insert(hit_player);
-
-        for c in children.iter() {
-            let child = billboard_query.iter().find(|c_| {
-                return c_.0.id() == c.id();
-            });
-
-            if child.is_none() {
+        if let Some((_, children, mut player)) = player_query
+            .iter_mut()
+            .find(|p| p.2.name == damage_event.to)
+        {
+            if player.health == 0 {
                 continue;
             }
 
-            let entity = child.unwrap().0;
-            let animation = child.unwrap().1;
+            player.health -= 100;
 
-            commands
-                .entity(entity)
-                .insert(EnemyAnimation {
-                    frame: 0,
-                    handle: animation.handle.clone(),
-                    animation_type: AnimationType::Dying,
-                })
-                .insert(AnimationTimer(Timer::from_seconds(0.1, true)))
-                .remove::<RayCastMesh<RaycastMarker>>();
+            for c in children.iter() {
+                if let Some((entity, animation, _)) = billboard_query.iter().find(|c_| {
+                    return c_.0.id() == c.id();
+                }) {
+                    commands
+                        .entity(entity)
+                        .insert(EnemyAnimation {
+                            frame: 0,
+                            handle: animation.handle.clone(),
+                            animation_type: AnimationType::Dying,
+                        })
+                        .insert(AnimationTimer(Timer::from_seconds(0.1, true)))
+                        .remove::<RayCastMesh<RaycastMarker>>();
+                }
+            }
+
+            let (_, _, mut hit_player) = player_query
+                .iter_mut()
+                .find(|(_, _, p)| p.name == damage_event.from)
+                .unwrap();
+
+            hit_player.score += 10;
         }
-
-        let hit_entity = player_query.iter().find(|p| p.2.name == damage_event.from);
-
-        let entity = hit_entity.unwrap().0;
-        let mut hit_player = hit_entity.unwrap().2.clone();
-        hit_player.score += 10;
-        commands.entity(entity).insert(hit_player);
     }
 }
 
@@ -923,6 +913,7 @@ fn animate_enemy(
                 // brotip:
                 //  * acos of dot product = absolute value of angle btwn vectors
                 //  * crossproduct -> 3 vector, sign of a perpendiculat component indicates whether vectors left / right
+
                 let mut angle = f32::acos(enemy_fwd.dot(player_fwd));
                 let sign = -player_fwd.cross((enemy_fwd).normalize()).y.signum();
                 angle *= sign;
@@ -1171,40 +1162,31 @@ pub struct Kill {
 }
 
 fn kill_action_system(
-    mut commands: Commands,
-    mut event_gun_shot: EventWriter<EventGunShot>,
     mut bloodthirsts: Query<(
         Entity,
+        &mut Velocity,
         &mut Transform,
-        &mut GlobalTransform,
         &mut BloodThirst,
-        &Player,
+        &mut Player,
     )>,
-    mut query: Query<(&Actor, &mut ActionState, &mut Kill)>,
-    enemy_animations: Query<(Entity, &Parent, &mut EnemyAnimation)>,
+    mut actors: Query<(&Actor, &mut ActionState, &mut Kill)>,
+    mut enemy_animations: Query<(Entity, &Parent, &mut EnemyAnimation)>,
 
-    mut event_damage: EventWriter<EventDamage>,
+    mut event_gun_shot: EventWriter<EventGunShot>,
 ) {
-    let players: Vec<(Entity, GlobalTransform, Player)> = bloodthirsts
+    let players: Vec<(Entity, Transform, Player)> = bloodthirsts
         .iter()
         .map(|(e, _, t, _, p)| (e.clone(), t.clone(), p.clone()))
         .collect();
 
-    for (Actor(actor), mut state, mut kill) in query.iter_mut() {
-        if let Ok(result) = bloodthirsts.get_mut(*actor) {
-            let transform = result.1;
-            let global_transform = result.2;
-            let thirst = result.3;
-            let player = result.4;
-
-            let e = enemy_animations
-                .iter()
+    for (Actor(actor), mut state, mut kill) in actors.iter_mut() {
+        if let Some((_, mut velocity, mut transform, thirst, mut player)) =
+            bloodthirsts.iter_mut().find(|e| e.0.id() == actor.id())
+        {
+            let (entity, _, mut animation) = enemy_animations
+                .iter_mut()
                 .find(|p| p.1.id() == actor.id())
                 .unwrap();
-
-            let mut animation = e.2.clone();
-            let entity = e.0;
-            let parent = e.1;
 
             match *state {
                 ActionState::Requested => {
@@ -1214,8 +1196,8 @@ fn kill_action_system(
                     if thirst.enemies_near == 0 {
                         if player.health == 0 {
                             animation.animation_type = AnimationType::Dying;
+                            animation.frame = 0;
                         }
-                        commands.entity(entity).insert(animation);
                         *state = ActionState::Success;
                     } else {
                         // turn to next target
@@ -1227,7 +1209,6 @@ fn kill_action_system(
 
                         animation.animation_type = AnimationType::Shooting;
                         animation.frame = 0;
-                        commands.entity(entity).insert(animation);
 
                         kill.last_action = Instant::now();
 
@@ -1235,10 +1216,10 @@ fn kill_action_system(
                             if e.health == 0 {
                                 return false;
                             }
-                            let distance = ((gt.translation.x - global_transform.translation.x)
-                                .powf(2.0)
-                                + (gt.translation.z - global_transform.translation.z).powf(2.0))
+                            let distance = ((gt.translation.x - transform.translation.x).powf(2.0)
+                                + (gt.translation.z - transform.translation.z).powf(2.0))
                             .sqrt();
+
                             return distance <= 20.0 && distance != 0.0;
                         });
 
@@ -1246,8 +1227,31 @@ fn kill_action_system(
                             continue;
                         }
 
-                        let rot_y = Quat::from_rotation_y(-player.rotation);
-                        let fwd_vec = rot_y.mul_vec3(Vec3::X) * 3.0;
+                        let mut view_angle = f32::acos(transform.forward().dot(
+                            (near_enemy.unwrap().1.translation - transform.translation).normalize(),
+                        ));
+
+                        let sign = -transform
+                            .forward()
+                            .normalize()
+                            .cross(
+                                (near_enemy.unwrap().1.translation - transform.translation)
+                                    .normalize(),
+                            )
+                            .y
+                            .signum();
+
+                        view_angle *= sign;
+
+                        // *velocity =
+                        // velocity.with_angular(AxisAngle::new(Vec3::Y, view_angle));
+
+                        transform.rotate(Quat::from_rotation_y(view_angle));
+                        player.rotation += view_angle;
+
+                        event_gun_shot.send(EventGunShot {
+                            from: player.name.clone(),
+                        })
                     }
                 }
                 // All Actions should make sure to handle cancellations!
@@ -1339,8 +1343,8 @@ fn main() {
         )
         // AI -- global due to
         .add_system(bloodthirst_system)
-        // .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
-        // .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
+        .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
+        .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
         .init_resource::<GameAssets>()
