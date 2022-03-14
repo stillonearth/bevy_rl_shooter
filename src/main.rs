@@ -662,7 +662,7 @@ fn event_gun_shot(
 
 fn event_damage(
     mut commands: Commands,
-    mut player_query: Query<(Entity, &Children, &mut Player)>,
+    mut player_query: Query<(Entity, &Children, &mut Player, &mut Velocity)>,
     mut billboard_query: Query<(Entity, &mut EnemyAnimation, &Billboard)>,
     mut event_damage: EventReader<EventDamage>,
 ) {
@@ -671,7 +671,7 @@ fn event_damage(
             continue;
         }
 
-        if let Some((entity, children, mut player)) = player_query
+        if let Some((entity, children, mut player, mut velocity)) = player_query
             .iter_mut()
             .find(|p| p.2.name == damage_event.to)
         {
@@ -691,6 +691,8 @@ fn event_damage(
                         animation.frame = 1;
                         animation.animation_type = AnimationType::Dying;
 
+                        velocity.clone_from(&Velocity::from_linear(Vec3::ZERO));
+
                         commands
                             .entity(billboard_entity)
                             .insert(EnemyAnimation {
@@ -708,9 +710,9 @@ fn event_damage(
                     .insert(Velocity::from_linear(Vec3::ZERO));
             }
 
-            let (_, _, mut hit_player) = player_query
+            let (_, _, mut hit_player, _) = player_query
                 .iter_mut()
-                .find(|(_, _, p)| p.name == damage_event.from)
+                .find(|(_, _, p, _)| p.name == damage_event.from)
                 .unwrap();
 
             hit_player.score += 10;
@@ -1207,10 +1209,17 @@ fn kill_action_system(
                         if player.health == 0 {
                             animation.animation_type = AnimationType::Dying;
                             // animation.frame = 0;
+                        } else {
+                            *velocity =
+                                Velocity::from_linear(transform.forward().normalize() * 2.0);
+                            animation.animation_type = AnimationType::Walking;
                         }
+
                         *state = ActionState::Success;
                     } else {
                         // turn to next target
+
+                        *velocity = Velocity::from_linear(Vec3::ZERO);
 
                         let duration = kill.last_action.elapsed().as_secs_f32();
                         if duration <= 0.5 {
@@ -1234,6 +1243,7 @@ fn kill_action_system(
                         });
 
                         if near_enemy.is_none() {
+                            println!("!!!");
                             continue;
                         }
 
@@ -1257,10 +1267,10 @@ fn kill_action_system(
                             return;
                         }
 
-                        *velocity =
-                            velocity.with_angular(AxisAngle::new(Vec3::Y, 2.0 * view_angle));
+                        // *velocity =
+                        // velocity.with_angular(AxisAngle::new(Vec3::Y, 2.0 * view_angle));
 
-                        // transform.rotate(Quat::from_rotation_y(view_angle));
+                        transform.rotate(Quat::from_rotation_y(view_angle));
                         player.rotation += view_angle;
 
                         event_gun_shot.send(EventGunShot {
