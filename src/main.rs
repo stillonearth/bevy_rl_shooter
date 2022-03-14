@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 mod map;
 
+const DEBUG: bool = true;
+
 #[derive(PhysicsLayer)]
 enum Layer {
     World,
@@ -233,6 +235,10 @@ fn spawn_game_world(
             ],
         });
 
+    if DEBUG {
+        return;
+    }
+
     for (x, z) in game_map.walls.iter() {
         commands
             .spawn_bundle(PbrBundle {
@@ -331,13 +337,18 @@ pub fn spawn_enemies(
     wolfenstein_sprites: Res<GameAssets>,
     asset_server: Res<AssetServer>,
 ) {
-    for _ in 0..32 {
+    let enemy_count = match DEBUG {
+        true => 64,
+        false => 32,
+    };
+
+    for _ in 0..enemy_count {
         // choose player random spawn point
         let mut rng = thread_rng();
         let pos = game_map.empty_space.choose(&mut rng).unwrap();
         let player = Player {
             position: (pos.0 as f32, pos.1 as f32),
-            rotation: 3.14 / 2.0 * rng.gen_range(0.0..std::f32::consts::PI * 2.0),
+            rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
             name: Generator::default().next().unwrap(),
             health: 100,
             score: 0,
@@ -385,7 +396,7 @@ pub fn spawn_enemies(
                 })
                 .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
 
-                // cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
+                cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
             })
             .insert(CollisionShape::Sphere { radius: 0.8 })
             .insert(RigidBody::Dynamic)
@@ -659,8 +670,6 @@ fn event_damage(
             continue;
         }
 
-        println!("{:?}", damage_event);
-
         let hit_entity = player_query.iter().find(|p| p.2.name == damage_event.to);
         if hit_entity.is_none() {
             continue;
@@ -729,7 +738,6 @@ impl FromWorld for GameAssets {
     fn from_world(world: &mut World) -> Self {
         let world = world.cell();
 
-        let mut image_assets = world.get_resource_mut::<Assets<Image>>().unwrap();
         let mut materials = world
             .get_resource_mut::<Assets<StandardMaterial>>()
             .unwrap();
@@ -908,25 +916,35 @@ fn animate_enemy(
                 };
 
                 let parent_transform = parent_query.get(parent.0).unwrap().1;
-                let parent_player = parent_query.get(parent.0).unwrap().0;
                 let enemy_fwd = parent_transform.forward().normalize();
                 let enemy_position = parent_transform.translation;
 
-                let mut angle =
-                    f32::acos(player_vector.dot(enemy_fwd)) * 180.0 / std::f32::consts::PI;
+                // this angle code was a major headache
+                // brotip:
+                //  * acos of dot product = absolute value of angle btwn vectors
+                //  * crossproduct -> 3 vector, sign of a perpendiculat component indicates whether vectors left / right
+                let mut angle = f32::acos(enemy_fwd.dot(player_fwd));
+                let sign = -player_fwd.cross((enemy_fwd).normalize()).y.signum();
+                angle *= sign;
+
+                let mut view_angle =
+                    f32::acos(player_fwd.dot((enemy_position - player_position).normalize()));
+
+                let sign = -player_fwd
+                    .cross((enemy_position - player_position).normalize())
+                    .y
+                    .signum();
+
+                view_angle *= sign;
+
+                angle += view_angle;
+                angle *= 180.0 / std::f32::consts::PI;
+
+                angle += 180.0;
+
                 if angle < 0.0 {
                     angle += 360.0;
                 }
-
-                let delta_z = enemy_position.z - player_position.z;
-                let delta_x = enemy_position.x - player_position.x;
-
-                angle += delta_x.atan2(delta_z) * 180.0 / std::f32::consts::PI;
-                if angle < 0.0 {
-                    angle += 360.0;
-                }
-
-                // println!("{}", angle);
 
                 let mut index = 0;
                 if angle >= 0.0 && angle < 45.0 {
@@ -946,7 +964,6 @@ fn animate_enemy(
                 } else if angle >= 315.0 && angle < 360.0 {
                     index = 7
                 }
-
                 animations = frameset[index].clone();
             }
 
@@ -1067,6 +1084,10 @@ fn check_termination(
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
 ) {
+    if DEBUG {
+        return;
+    }
+
     let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
@@ -1227,19 +1248,6 @@ fn kill_action_system(
 
                         let rot_y = Quat::from_rotation_y(-player.rotation);
                         let fwd_vec = rot_y.mul_vec3(Vec3::X) * 3.0;
-
-                        commands
-                            .entity(parent.0)
-                            .insert(Velocity::from_linear(fwd_vec));
-
-                        let mut rng = rand::thread_rng();
-
-                        if rng.gen_range(0..10) > 8 {
-                            event_damage.send(EventDamage {
-                                from: player.name.clone(),
-                                to: near_enemy.unwrap().2.name.clone(),
-                            })
-                        }
                     }
                 }
                 // All Actions should make sure to handle cancellations!
@@ -1331,8 +1339,8 @@ fn main() {
         )
         // AI -- global due to
         .add_system(bloodthirst_system)
-        .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
-        .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
+        // .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
+        // .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
         .init_resource::<GameAssets>()
