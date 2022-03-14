@@ -335,7 +335,6 @@ pub fn spawn_enemies(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     wolfenstein_sprites: Res<GameAssets>,
-    asset_server: Res<AssetServer>,
 ) {
     let enemy_count = match DEBUG {
         true => 64,
@@ -1267,9 +1266,6 @@ fn kill_action_system(
                             return;
                         }
 
-                        // *velocity =
-                        // velocity.with_angular(AxisAngle::new(Vec3::Y, 2.0 * view_angle));
-
                         transform.rotate(Quat::from_rotation_y(view_angle));
                         player.rotation += view_angle;
 
@@ -1282,10 +1278,7 @@ fn kill_action_system(
                 ActionState::Cancelled => {
                     *state = ActionState::Failure;
                 }
-                _ => {
-                    // animation.animation_type = AnimationType::Standing;
-                    // animation.frame = 0
-                }
+                _ => {}
             }
         }
     }
