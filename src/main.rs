@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 mod map;
 
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 
 #[derive(PhysicsLayer)]
 enum Layer {
@@ -339,7 +339,7 @@ pub fn spawn_enemies(
 ) {
     let enemy_count = match DEBUG {
         true => 64,
-        false => 32,
+        false => 64,
     };
 
     for _ in 0..enemy_count {
@@ -396,7 +396,7 @@ pub fn spawn_enemies(
                 })
                 .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
 
-                cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
+                // cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
             })
             .insert(CollisionShape::Sphere { radius: 0.8 })
             .insert(RigidBody::Dynamic)
@@ -663,7 +663,7 @@ fn event_gun_shot(
 fn event_damage(
     mut commands: Commands,
     mut player_query: Query<(Entity, &Children, &mut Player)>,
-    billboard_query: Query<(Entity, &EnemyAnimation, &Billboard)>,
+    mut billboard_query: Query<(Entity, &mut EnemyAnimation, &Billboard)>,
     mut event_damage: EventReader<EventDamage>,
 ) {
     for damage_event in event_damage.iter() {
@@ -671,7 +671,7 @@ fn event_damage(
             continue;
         }
 
-        if let Some((_, children, mut player)) = player_query
+        if let Some((entity, children, mut player)) = player_query
             .iter_mut()
             .find(|p| p.2.name == damage_event.to)
         {
@@ -681,20 +681,31 @@ fn event_damage(
 
             player.health -= 100;
 
-            for c in children.iter() {
-                if let Some((entity, animation, _)) = billboard_query.iter().find(|c_| {
-                    return c_.0.id() == c.id();
-                }) {
-                    commands
-                        .entity(entity)
-                        .insert(EnemyAnimation {
-                            frame: 0,
-                            handle: animation.handle.clone(),
-                            animation_type: AnimationType::Dying,
+            if player.health == 0 {
+                for c in children.iter() {
+                    if let Some((billboard_entity, mut animation, _)) =
+                        billboard_query.iter_mut().find(|c_| {
+                            return c_.0.id() == c.id();
                         })
-                        .insert(AnimationTimer(Timer::from_seconds(0.1, true)))
-                        .remove::<RayCastMesh<RaycastMarker>>();
+                    {
+                        animation.frame = 1;
+                        animation.animation_type = AnimationType::Dying;
+
+                        commands
+                            .entity(billboard_entity)
+                            .insert(EnemyAnimation {
+                                frame: 0,
+                                handle: animation.handle.clone(),
+                                animation_type: AnimationType::Dying,
+                            })
+                            .insert(AnimationTimer(Timer::from_seconds(0.1, true)))
+                            .remove::<RayCastMesh<RaycastMarker>>();
+                    }
                 }
+
+                commands
+                    .entity(entity)
+                    .insert(Velocity::from_linear(Vec3::ZERO));
             }
 
             let (_, _, mut hit_player) = player_query
@@ -877,7 +888,6 @@ fn animate_enemy(
     parent_query: Query<(&Player, &GlobalTransform)>,
 ) {
     let player_transform = q.q1().iter().last().unwrap();
-    let player_vector = Vec3::X;
     let player_position = player_transform.translation;
     let player_fwd = player_transform.forward().normalize();
 
@@ -1183,7 +1193,7 @@ fn kill_action_system(
         if let Some((_, mut velocity, mut transform, thirst, mut player)) =
             bloodthirsts.iter_mut().find(|e| e.0.id() == actor.id())
         {
-            let (entity, _, mut animation) = enemy_animations
+            let (_, _, mut animation) = enemy_animations
                 .iter_mut()
                 .find(|p| p.1.id() == actor.id())
                 .unwrap();
@@ -1196,7 +1206,7 @@ fn kill_action_system(
                     if thirst.enemies_near == 0 {
                         if player.health == 0 {
                             animation.animation_type = AnimationType::Dying;
-                            animation.frame = 0;
+                            // animation.frame = 0;
                         }
                         *state = ActionState::Success;
                     } else {
@@ -1231,7 +1241,7 @@ fn kill_action_system(
                             (near_enemy.unwrap().1.translation - transform.translation).normalize(),
                         ));
 
-                        let sign = -transform
+                        let sign = transform
                             .forward()
                             .normalize()
                             .cross(
@@ -1243,10 +1253,14 @@ fn kill_action_system(
 
                         view_angle *= sign;
 
-                        // *velocity =
-                        // velocity.with_angular(AxisAngle::new(Vec3::Y, view_angle));
+                        if view_angle.is_nan() {
+                            return;
+                        }
 
-                        transform.rotate(Quat::from_rotation_y(view_angle));
+                        *velocity =
+                            velocity.with_angular(AxisAngle::new(Vec3::Y, 2.0 * view_angle));
+
+                        // transform.rotate(Quat::from_rotation_y(view_angle));
                         player.rotation += view_angle;
 
                         event_gun_shot.send(EventGunShot {
@@ -1259,7 +1273,8 @@ fn kill_action_system(
                     *state = ActionState::Failure;
                 }
                 _ => {
-                    animation.animation_type = AnimationType::Standing;
+                    // animation.animation_type = AnimationType::Standing;
+                    // animation.frame = 0
                 }
             }
         }

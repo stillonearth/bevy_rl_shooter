@@ -8,7 +8,7 @@ bevy = {version = "0.6.0"}
 bevy-inspector-egui = {version = "0.8.0"}
 bevy_config_cam = "0.2.0"
 bevy_mod_raycast = {version = "0.3"}
-heron = {version = "2.0.1", features = ["3d"]}
+heron = { git = "https://github.com/jcornaz/heron.git", branch = "main", features = ["3d"]}
 rand = "0.8.4"
 names = { version = "0.12.0", default-features = false }
 big-brain = "0.10.0"
