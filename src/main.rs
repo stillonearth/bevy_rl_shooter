@@ -3,17 +3,49 @@ use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use std::ops::Range;
 
+use bevy::app::AppExit;
+use bevy::ecs::event::Events;
 use bevy::prelude::*;
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy::{
+    core_pipeline::{
+        draw_3d_graph, node, AlphaMask3d, Opaque3d, RenderTargetClearColors, Transparent3d,
+    },
+    prelude::*,
+    render::{
+        camera::{ActiveCamera, Camera, CameraTypePlugin, RenderTarget},
+        render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, SlotValue},
+        render_phase::RenderPhase,
+        render_resource::{
+            Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+        },
+        renderer::RenderContext,
+        view::RenderLayers,
+        RenderApp, RenderStage,
+    },
+};
+
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
 use big_brain::prelude::*;
 use heron::*;
+
+use clap::Parser;
 use names::Generator;
 use serde::{Deserialize, Serialize};
 
 mod map;
 
 const DEBUG: bool = false;
+
+// clap command line arguments
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    #[clap(short, long)]
+    mode: String,
+}
+
+// Physics
 
 #[derive(PhysicsLayer)]
 enum Layer {
@@ -97,6 +129,7 @@ pub struct EventDamage {
 enum AppState {
     MainMenu,
     InGame,
+    Pause,
     RoundOver,
 }
 
@@ -972,7 +1005,7 @@ fn animate_enemy(
             if let Some(mesh) = meshes.get_mut(animation.handle.clone()) {
                 let uv = animations[animation.frame as usize].clone();
 
-                mesh.set_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
             }
 
             if animation.frame >= (animations.len() as u8 - 1) {
@@ -1080,22 +1113,33 @@ fn update_hud(
     }
 }
 
-fn check_termination(
+fn check_termination_play(
     player_query: Query<&Player>,
     time: Res<Time>,
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
 ) {
-    if DEBUG {
-        return;
-    }
-
     let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
     if player_1.health == 0 || seconds_left == 0 {
         app_state.set(AppState::RoundOver).unwrap();
+    }
+}
+
+fn check_termination_training(
+    player_query: Query<&Player>,
+    time: Res<Time>,
+    mut round_timer: ResMut<RoundTimer>,
+    mut event_app_exit: ResMut<Events<AppExit>>,
+) {
+    let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
+    round_timer.0.tick(time.delta());
+    let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
+
+    if player_1.health == 0 || seconds_left == 0 {
+        event_app_exit.send(AppExit);
     }
 }
 
@@ -1298,14 +1342,83 @@ pub fn bloodthirsty_scorer_system(
     }
 }
 
+// -------------
+// Training mode
+// -------------
+
+struct DelayedControlTimer(Timer);
+
+fn delayed_control_system(
+    mut app_state: ResMut<State<AppState>>,
+    time: Res<Time>,
+    mut timer: ResMut<DelayedControlTimer>,
+) {
+    // update our timer with the time elapsed since the last update
+    // if that caused the timer to finish, we say hello to everyone
+    if timer.0.tick(time.delta()).just_finished() {
+        app_state.set(AppState::Pause);
+        println!("control frame !");
+    }
+}
+
+#[derive(Component, Default)]
+pub struct FirstPassCamera;
+
+// The name of the final node of the first pass.
+pub const FIRST_PASS_DRIVER: &str = "first_pass_driver";
+fn render_to_file(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let size = Extent3d {
+        width: 512,
+        height: 512,
+        depth_or_array_layers: 1,
+    };
+
+    let mut image = Image {
+        texture_descriptor: TextureDescriptor {
+            label: None,
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Bgra8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+        },
+        ..Default::default()
+    };
+
+    image.resize(size);
+
+    let image_handle = images.set(RENDER_IMAGE_HANDLE, image);
+
+    let first_pass_layer = RenderLayers::layer(1);
+    let render_target = RenderTarget::Image(image_handle);
+
+    commands
+        .spawn_bundle(PerspectiveCameraBundle {
+            camera: Camera {
+                target: render_target,
+                ..Default::default()
+            },
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
+                .looking_at(Vec3::default(), Vec3::Y),
+            ..PerspectiveCameraBundle::new()
+        })
+        .insert(first_pass_layer);
+}
+
 // -----------
 // Entry Point
 // -----------
 
 fn main() {
-    App::new()
-        // Resources
-        .insert_resource(ClearColor(Color::WHITE))
+    let args = Args::parse();
+
+    let mut app = App::new();
+
+    // Resources
+    app.insert_resource(ClearColor(Color::WHITE))
         .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
         .insert_resource(DefaultPluginState::<RaycastMarker>::default())
         // Events
@@ -1318,7 +1431,6 @@ fn main() {
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
         // State chain
-        .add_state(AppState::MainMenu)
         .add_system_set(
             SystemSet::on_enter(AppState::MainMenu)
                 .with_system(spawn_ui_camera)
@@ -1332,24 +1444,19 @@ fn main() {
                 .with_system(spawn_game_world)
                 .with_system(spawn_player)
                 .with_system(spawn_enemies)
-                .with_system(draw_hud)
                 .with_system(draw_gun)
                 .with_system(init_round),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(check_termination)
-                .with_system(control_player)
                 .with_system(animate_gun)
                 .with_system(animate_enemy)
                 .with_system(render_billboards)
-                .with_system(update_hud)
                 // Event handlers
                 .with_system(event_gun_shot)
                 .with_system(event_damage),
         )
-        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::RoundOver)
                 .with_system(spawn_ui_camera)
@@ -1365,6 +1472,42 @@ fn main() {
         .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
-        .init_resource::<GameAssets>()
-        .run();
+        .init_resource::<GameAssets>();
+
+    if args.mode == "train" {
+        app.add_state(AppState::InGame);
+        app.add_system_set(
+            SystemSet::on_update(AppState::InGame)
+                // Game Systems
+                .with_system(check_termination_training)
+                .with_system(delayed_control_system),
+        );
+
+        app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
+    } else if args.mode == "playtest" {
+        app.add_state(AppState::InGame);
+        app.add_system_set(
+            SystemSet::on_update(AppState::InGame)
+                // Game Systems
+                .with_system(control_player)
+                .with_system(check_termination_training),
+        );
+
+        app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
+    }
+
+    // This branch would panic on current version
+    // else {
+    //     app.add_state(AppState::MainMenu);
+
+    //     app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
+    //     app.add_system_set(
+    //         SystemSet::on_update(AppState::InGame)
+    //             .with_system(update_hud)
+    //             .with_system(check_termination_play),
+    //     );
+    //     app.add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world));
+    // }
+
+    app.run();
 }

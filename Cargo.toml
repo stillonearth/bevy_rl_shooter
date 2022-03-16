@@ -4,16 +4,19 @@ name = "bevystein"
 version = "0.0.1"
 
 [dependencies]
-bevy = {version = "0.6.0"}
-bevy-inspector-egui = {version = "0.8.0"}
-bevy_config_cam = "0.2.0"
-bevy_mod_raycast = {version = "0.3"}
-heron = { git = "https://github.com/jcornaz/heron.git", branch = "main", features = ["3d"]}
+bevy = {package = "bevy", git = "https://github.com/bevyengine/bevy.git", rev = "026563c"}
+bevy_mod_raycast = {path = "./crates/bevy_mod_raycast"}
+big-brain = {path = "./crates/big-brain"}
+clap = {version = "3.1.6", features = ["derive"]}
+heron = {path = "./crates/heron", features = ["3d"]}
+names = {version = "0.13.0", default-features = false}
 rand = "0.8.4"
-names = { version = "0.12.0", default-features = false }
-big-brain = "0.10.0"
+serde = {version = "1.0", features = ["derive"]}
 serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+image = "0.24.1"
+wgpu = "0.12.0"
+bytemuck = "1.8.0"
+futures = "0.3"
 
 [profile.dev]
 opt-level = 3
