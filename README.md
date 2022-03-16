@@ -32,11 +32,12 @@ Currently working
 * [x] Map consturction
 * [x] Enemies
 * [x] Player health
+* [x] Enemy movement
+* [x] Enemy shooting via raycast
+* [ ] 
 
 TODO:
 
-* [ ] Enemy movement
-* [ ] Enemy shooting via raycase
 * [ ] Wall textures
 * [ ] Gym environment
 * [ ] Enemy AI with neural networks
