@@ -16,6 +16,7 @@ use bevy::{
     },
 };
 
+use bevy::render::render_asset::RenderAssets;
 use bevy::render::renderer::RenderDevice;
 use bevy::render::renderer::RenderQueue;
 
@@ -32,17 +33,17 @@ pub const FIRST_PASS_DRIVER: &str = "first_pass_driver";
 fn main() {
     let mut app = App::new();
     app.insert_resource(Msaa { samples: 4 })
-        .init_resource::<GameAssets>() // Use 4x MSAA
+        // Use 4x MSAA
         .add_plugins(DefaultPlugins)
         .add_plugin(CameraTypePlugin::<FirstPassCamera>::default())
         .add_startup_system(setup)
-        .add_system(rotator_system)
-        .add_system(save_image);
+        .add_system(rotator_system);
 
     let render_app = app.sub_app_mut(RenderApp);
     let driver = FirstPassCameraDriver::new(&mut render_app.world);
     // This will add 3D render phases for the new camera.
     render_app.add_system_to_stage(RenderStage::Extract, extract_first_pass_camera_phases);
+    render_app.add_system_to_stage(RenderStage::Render, save_image);
 
     let mut graph = render_app.world.resource_mut::<RenderGraph>();
 
@@ -139,45 +140,62 @@ pub fn texture_image_layout(desc: &TextureDescriptor<'_>) -> ImageDataLayout {
     return layout;
 }
 
+use bevy::render::render_asset::ExtractedAssets;
+
 fn save_image(
-    images: Res<Assets<Image>>,
-    game_assets: Res<GameAssets>,
+    server: Res<AssetServer>,
+    images: Res<ExtractedAssets<Image>>,
+    gpu_images: Res<RenderAssets<Image>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    if game_assets.rendered_image.is_none() {
-        return;
-    }
-
-    let image = images
-        .get(game_assets.rendered_image.clone().unwrap())
+    let gpu_image = gpu_images
+        .iter()
+        .find(|(_, i)| {
+            return i.size.width == 512.0;
+        })
         .unwrap()
-        .clone();
+        .1;
 
     let device = render_device.wgpu_device();
 
-    let size = (image.size().x * image.size().y) as u64;
     let destination = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: size,
+        size: (gpu_image.size.width * gpu_image.size.height * 4.0) as u64,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
-    let texture = render_device.create_texture(&image.texture_descriptor);
+    let texture = gpu_image.texture.clone();
 
     let mut encoder =
         render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+    let size = Extent3d {
+        width: 512,
+        height: 512,
+        ..default()
+    };
 
     encoder.copy_texture_to_buffer(
         texture.as_image_copy(),
         ImageCopyBuffer {
             buffer: &destination,
-            layout: texture_image_layout(&image.texture_descriptor),
+            layout: texture_image_layout(&TextureDescriptor {
+                label: Some("render_image"),
+                size,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Bgra8UnormSrgb,
+                mip_level_count: 1,
+                sample_count: 1,
+                usage: TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_DST
+                    | TextureUsages::RENDER_ATTACHMENT, // | TextureUsages::STORAGE_BINDING,
+            }),
         },
         Extent3d {
             width: 512,
-            height: 1,
+            height: 512,
             ..default()
         },
     );
@@ -198,9 +216,8 @@ fn save_image(
     // if let Ok(()) = executor::block_on(buffer_future).err() {
     // Gets contents of buffer
     let data = buffer_slice.get_mapped_range();
-    println!("{:?}", data);
     // Since contents are got in bytes, this converts these bytes back to u32
-    let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+    let result: Vec<u16> = bytemuck::cast_slice(&data).to_vec();
 
     // With the current interface, we have to make sure all mapped views are
     // dropped before we unmap the buffer.
@@ -214,7 +231,15 @@ fn save_image(
     // Returns data from buffer
     // Some(result)
 
-    println!("{}", result.iter().filter(|e| **e > 0).count());
+    let mut sum: u64 = 0;
+
+    for i in result.iter() {
+        sum += *i as u64;
+    }
+
+    let avg = sum as f64 / result.len() as f64;
+
+    println!("{:?}", avg);
 }
 
 pub struct GameAssets {
@@ -235,7 +260,6 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut clear_colors: ResMut<RenderTargetClearColors>,
-    mut game_assets: ResMut<GameAssets>,
 ) {
     let size = Extent3d {
         width: 512,
@@ -253,9 +277,9 @@ fn setup(
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
                 | TextureUsages::COPY_SRC
-                | TextureUsages::RENDER_ATTACHMENT, // | TextureUsages::STORAGE_BINDING,
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
         },
         ..default()
     };
@@ -264,8 +288,6 @@ fn setup(
     image.resize(size);
 
     let image_handle = images.add(image);
-
-    game_assets.rendered_image = Some(image_handle.clone());
 
     let cube_handle = meshes.add(Mesh::from(shape::Cube { size: 4.0 }));
     let cube_material_handle = materials.add(StandardMaterial {
