@@ -1427,7 +1427,6 @@ fn main() {
         // Plugins
         .add_plugins(DefaultPlugins)
         .add_plugin(PhysicsPlugin::default())
-        // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
         // State chain

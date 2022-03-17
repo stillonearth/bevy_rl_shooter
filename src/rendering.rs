@@ -31,8 +31,35 @@ use image;
 #[derive(Component, Default)]
 pub struct FirstPassCamera;
 
-// The name of the final node of the first pass.
+pub struct AIGymPlugin;
+
 pub const FIRST_PASS_DRIVER: &str = "first_pass_driver";
+pub const WIDTH: u32 = 512;
+pub const HEIGHT: u32 = 512;
+
+impl Plugin for AIGymPlugin {
+    fn build(&self, app: &mut App) {
+        setup_rendering(app);
+
+        app.add_plugin(CameraTypePlugin::<FirstPassCamera>::default());
+        app.add_startup_system(setup.label("setup_rendering"));
+        app.init_resource::<AIGymAssets>();
+    }
+}
+
+// Add 3D render phases for FIRST_PASS_CAMERA.
+fn extract_first_pass_camera_phases(
+    mut commands: Commands,
+    active: Res<ActiveCamera<FirstPassCamera>>,
+) {
+    if let Some(entity) = active.get() {
+        commands.get_or_spawn(entity).insert_bundle((
+            RenderPhase::<Opaque3d>::default(),
+            RenderPhase::<AlphaMask3d>::default(),
+            RenderPhase::<Transparent3d>::default(),
+        ));
+    }
+}
 
 fn setup_rendering(app: &mut App) {
     let render_app = app.sub_app_mut(RenderApp);
@@ -57,34 +84,6 @@ fn setup_rendering(app: &mut App) {
         .unwrap();
 }
 
-fn main() {
-    let mut app = App::new();
-    app.insert_resource(Msaa { samples: 4 })
-        // Use 4x MSAA
-        .add_plugins(DefaultPlugins)
-        .add_plugin(CameraTypePlugin::<FirstPassCamera>::default())
-        .add_startup_system(setup)
-        .add_system(rotator_system);
-
-    setup_rendering(&mut app);
-
-    app.run();
-}
-
-// Add 3D render phases for FIRST_PASS_CAMERA.
-fn extract_first_pass_camera_phases(
-    mut commands: Commands,
-    active: Res<ActiveCamera<FirstPassCamera>>,
-) {
-    if let Some(entity) = active.get() {
-        commands.get_or_spawn(entity).insert_bundle((
-            RenderPhase::<Opaque3d>::default(),
-            RenderPhase::<AlphaMask3d>::default(),
-            RenderPhase::<Transparent3d>::default(),
-        ));
-    }
-}
-
 // A node for the first pass camera that runs draw_3d_graph with this camera.
 struct FirstPassCameraDriver {
     query: QueryState<Entity, With<FirstPassCamera>>,
@@ -97,6 +96,7 @@ impl FirstPassCameraDriver {
         }
     }
 }
+
 impl Node for FirstPassCameraDriver {
     fn update(&mut self, world: &mut World) {
         self.query.update_archetypes(world);
@@ -114,10 +114,6 @@ impl Node for FirstPassCameraDriver {
         Ok(())
     }
 }
-
-// Marks the first pass cube (rendered to a texture.)
-#[derive(Component)]
-struct RotatingCube;
 
 pub fn texture_image_layout(desc: &TextureDescriptor<'_>) -> ImageDataLayout {
     let size = desc.size;
@@ -139,11 +135,7 @@ pub fn texture_image_layout(desc: &TextureDescriptor<'_>) -> ImageDataLayout {
     return layout;
 }
 
-use bevy::render::render_asset::ExtractedAssets;
-
 fn save_image(
-    server: Res<AssetServer>,
-    images: Res<ExtractedAssets<Image>>,
     gpu_images: Res<RenderAssets<Image>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -193,8 +185,8 @@ fn save_image(
             }),
         },
         Extent3d {
-            width: 512,
-            height: 512,
+            width: WIDTH,
+            height: HEIGHT,
             ..default()
         },
     );
@@ -228,26 +220,29 @@ fn save_image(
                          // It effectively frees the memory
 
     // Returns data from buffer
-    image::save_buffer("test.png", &result, 512, 512, image::ColorType::Rgba8).unwrap();
+    image::save_buffer("test.png", &result, WIDTH, HEIGHT, image::ColorType::Rgba8).unwrap();
 }
 
-pub struct GameAssets {
+pub struct AIGymAssets {
     pub rendered_image: Option<Handle<Image>>,
+    pub render_layer: Option<RenderLayers>,
+    pub render_target: Option<RenderTarget>,
 }
 
-impl FromWorld for GameAssets {
-    fn from_world(world: &mut World) -> Self {
+impl FromWorld for AIGymAssets {
+    fn from_world(_: &mut World) -> Self {
         return Self {
             rendered_image: None,
+            render_layer: None,
+            render_target: None,
         };
     }
 }
 
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut ai_gym_assets: ResMut<AIGymAssets>,
     mut clear_colors: ResMut<RenderTargetClearColors>,
 ) {
     let size = Extent3d {
@@ -278,66 +273,20 @@ fn setup(
 
     let image_handle = images.add(image);
 
-    let cube_handle = meshes.add(Mesh::from(shape::Cube { size: 4.0 }));
-    let cube_material_handle = materials.add(StandardMaterial {
-        base_color: Color::rgb(0.8, 0.7, 0.6),
-        reflectance: 0.02,
-        unlit: false,
-        ..default()
-    });
+    ai_gym_assets.rendered_image = Some(image_handle.clone());
+    ai_gym_assets.render_layer = Some(RenderLayers::layer(1));
+    ai_gym_assets.render_target = Some(RenderTarget::Image(image_handle.clone()));
 
-    // This specifies the layer used for the first pass, which will be attached to the first pass camera and cube.
-    let first_pass_layer = RenderLayers::layer(1);
+    clear_colors.insert(ai_gym_assets.render_target.clone().unwrap(), Color::WHITE);
 
-    // The cube that will be rendered to the texture.
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: cube_handle,
-            material: cube_material_handle,
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
-            ..default()
-        })
-        .insert(RotatingCube)
-        .insert(first_pass_layer);
-
-    // Light
-    // NOTE: Currently lights are shared between passes - see https://github.com/bevyengine/bevy/issues/3462
-    commands.spawn_bundle(PointLightBundle {
-        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
-        ..default()
-    });
-
-    // First pass camera
-    let render_target = RenderTarget::Image(image_handle.clone());
-    clear_colors.insert(render_target.clone(), Color::WHITE);
-    commands
-        .spawn_bundle(PerspectiveCameraBundle::<FirstPassCamera> {
-            camera: Camera {
-                target: render_target,
-                ..default()
-            },
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
-                .looking_at(Vec3::default(), Vec3::Y),
-            ..PerspectiveCameraBundle::new()
-        })
-        .insert(first_pass_layer);
-
+    // UI viewport for game
     commands.spawn_bundle(UiCameraBundle::default());
     commands.spawn_bundle(ImageBundle {
         style: Style {
             align_self: AlignSelf::Center,
             ..Default::default()
         },
-        image: image_handle.into(),
+        image: ai_gym_assets.rendered_image.clone().unwrap().into(),
         ..Default::default()
     });
-    // .insert(MainPassCube);
-}
-
-/// Rotates the inner cube (first pass)
-fn rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<RotatingCube>>) {
-    for mut transform in query.iter_mut() {
-        transform.rotation *= Quat::from_rotation_x(1.5 * time.delta_seconds());
-        transform.rotation *= Quat::from_rotation_z(1.3 * time.delta_seconds());
-    }
 }
