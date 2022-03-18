@@ -31,14 +31,17 @@ use wgpu::ImageDataLayout;
 use futures::executor;
 use image;
 
+pub struct AIGymSettings {
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Component, Default)]
 pub struct FirstPassCamera;
 
 pub struct AIGymPlugin;
 
 pub const FIRST_PASS_DRIVER: &str = "first_pass_driver";
-pub const WIDTH: u32 = 512;
-pub const HEIGHT: u32 = 512;
 
 impl Plugin for AIGymPlugin {
     fn build(&self, app: &mut App) {
@@ -49,6 +52,7 @@ impl Plugin for AIGymPlugin {
             render_layer: None,
             render_target: None,
             rendered_image: None,
+            render_image_handle: None,
         }));
 
         app.insert_resource(gym_assets.clone());
@@ -149,13 +153,11 @@ fn save_image(
     render_queue: Res<RenderQueue>,
     ai_gym_assets: Res<Arc<Mutex<AIGymAssets>>>,
 ) {
+    let mut ai_gym_assets = ai_gym_assets.lock().unwrap();
+
     let gpu_image = gpu_images
-        .iter()
-        .find(|(_, i)| {
-            return i.size.width == 512.0;
-        })
-        .unwrap()
-        .1;
+        .get(&ai_gym_assets.render_image_handle.clone().unwrap())
+        .unwrap();
 
     let device = render_device.wgpu_device();
 
@@ -194,8 +196,8 @@ fn save_image(
             }),
         },
         Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
+            width: gpu_image.size.width as u32,
+            height: gpu_image.size.height as u32,
             ..default()
         },
     );
@@ -228,9 +230,12 @@ fn save_image(
                          //   myPointer = NULL;
                          // It effectively frees the memory
 
-    let mut ai_gym_assets = ai_gym_assets.lock().unwrap();
-
-    let img: image::RgbaImage = image::ImageBuffer::from_raw(WIDTH, HEIGHT, result).unwrap();
+    let img: image::RgbaImage = image::ImageBuffer::from_raw(
+        gpu_image.size.width as u32,
+        gpu_image.size.height as u32,
+        result,
+    )
+    .unwrap();
     ai_gym_assets.rendered_image = Some(img.clone());
 
     img.save("screen.png");
@@ -241,28 +246,20 @@ pub struct AIGymAssets {
     pub rendered_image: Option<image::RgbaImage>,
     pub render_layer: Option<RenderLayers>,
     pub render_target: Option<RenderTarget>,
-}
-
-impl FromWorld for AIGymAssets {
-    fn from_world(_: &mut World) -> Self {
-        return Self {
-            rendered_image: None,
-            render_layer: None,
-            render_target: None,
-        };
-    }
+    pub render_image_handle: Option<Handle<Image>>,
 }
 
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     ai_gym_assets: ResMut<Arc<Mutex<AIGymAssets>>>,
+    ai_gym_settings: Res<AIGymSettings>,
     mut clear_colors: ResMut<RenderTargetClearColors>,
     mut windows: ResMut<Windows>,
 ) {
     let size = Extent3d {
-        width: 512,
-        height: 512,
+        width: ai_gym_settings.width,
+        height: ai_gym_settings.height,
         ..default()
     };
 
@@ -293,6 +290,7 @@ fn setup(
     // ai_gym_assets.rendered_image = Some(image_handle.clone());
     ai_gym_assets.render_layer = Some(RenderLayers::layer(1));
     ai_gym_assets.render_target = Some(RenderTarget::Image(image_handle.clone()));
+    ai_gym_assets.render_image_handle = Some(image_handle.clone());
 
     clear_colors.insert(ai_gym_assets.render_target.clone().unwrap(), Color::WHITE);
 
@@ -308,6 +306,6 @@ fn setup(
     });
 
     let window = windows.get_primary_mut().unwrap();
-    window.set_resolution(WIDTH as f32, HEIGHT as f32);
+    window.set_resolution(ai_gym_settings.width as f32, ai_gym_settings.height as f32);
     window.set_resizable(false);
 }

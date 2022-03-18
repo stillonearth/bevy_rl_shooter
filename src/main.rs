@@ -1414,7 +1414,11 @@ fn main() {
         .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
-        .init_resource::<GameAssets>();
+        .init_resource::<GameAssets>()
+        .insert_resource(rendering::AIGymSettings {
+            width: 512,
+            height: 512,
+        });
 
     if args.mode == "train" {
         app.add_state(AppState::InGame);
