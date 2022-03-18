@@ -1,38 +1,20 @@
-use bevy::utils::Instant;
-use rand::thread_rng;
-use rand::{seq::SliceRandom, Rng};
-use std::ops::Range;
-
 use bevy::app::AppExit;
 use bevy::ecs::event::Events;
 use bevy::prelude::*;
-use bevy::{
-    core_pipeline::{
-        draw_3d_graph, node, AlphaMask3d, Opaque3d, RenderTargetClearColors, Transparent3d,
-    },
-    prelude::*,
-    render::{
-        camera::{ActiveCamera, Camera, CameraTypePlugin, RenderTarget},
-        render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, SlotValue},
-        render_phase::RenderPhase,
-        render_resource::{
-            Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-        },
-        renderer::RenderContext,
-        view::RenderLayers,
-        RenderApp, RenderStage,
-    },
-};
-
+use bevy::utils::Instant;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
 use big_brain::prelude::*;
-use heron::*;
-
 use clap::Parser;
+use heron::*;
 use names::Generator;
+use rand::thread_rng;
+use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
+use std::sync::{Arc, Mutex};
 
 mod map;
+mod rendering;
 
 const DEBUG: bool = false;
 
@@ -242,9 +224,9 @@ fn spawn_game_world(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    ai_gym_assets: Res<Arc<Mutex<rendering::AIGymAssets>>>,
 ) {
-    // Plane
-
+    let ai_gym_assets = ai_gym_assets.lock().unwrap();
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
@@ -281,6 +263,7 @@ fn spawn_game_world(
                 global_transform: GlobalTransform::identity(),
                 ..Default::default()
             })
+            // .insert(ai_gym_assets.render_layer.unwrap())
             .insert(RigidBody::Static)
             .insert(CollisionShape::Cuboid {
                 half_extends: Vec3::new(1.0, 1.0, 1.0),
@@ -299,7 +282,9 @@ pub fn spawn_player(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
+    ai_gym_assets: Res<Arc<Mutex<rendering::AIGymAssets>>>,
 ) {
+    let ai_gym_assets = ai_gym_assets.lock().unwrap();
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
     let player = Player {
@@ -330,8 +315,12 @@ pub fn spawn_player(
             });
 
             // Camera
-            cell.spawn_bundle(PerspectiveCameraBundle {
-                ..Default::default()
+            cell.spawn_bundle(PerspectiveCameraBundle::<rendering::FirstPassCamera> {
+                camera: Camera {
+                    target: ai_gym_assets.render_target.clone().unwrap(),
+                    ..default()
+                },
+                ..PerspectiveCameraBundle::new()
             })
             .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
 
@@ -1361,53 +1350,6 @@ fn delayed_control_system(
     }
 }
 
-#[derive(Component, Default)]
-pub struct FirstPassCamera;
-
-// The name of the final node of the first pass.
-pub const FIRST_PASS_DRIVER: &str = "first_pass_driver";
-fn render_to_file(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let size = Extent3d {
-        width: 512,
-        height: 512,
-        depth_or_array_layers: 1,
-    };
-
-    let mut image = Image {
-        texture_descriptor: TextureDescriptor {
-            label: None,
-            size,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-        },
-        ..Default::default()
-    };
-
-    image.resize(size);
-
-    let image_handle = images.set(RENDER_IMAGE_HANDLE, image);
-
-    let first_pass_layer = RenderLayers::layer(1);
-    let render_target = RenderTarget::Image(image_handle);
-
-    commands
-        .spawn_bundle(PerspectiveCameraBundle {
-            camera: Camera {
-                target: render_target,
-                ..Default::default()
-            },
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
-                .looking_at(Vec3::default(), Vec3::Y),
-            ..PerspectiveCameraBundle::new()
-        })
-        .insert(first_pass_layer);
-}
-
 // -----------
 // Entry Point
 // -----------
@@ -1426,6 +1368,7 @@ fn main() {
         .add_event::<EventDamage>()
         // Plugins
         .add_plugins(DefaultPlugins)
+        .add_plugin(rendering::AIGymPlugin)
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)

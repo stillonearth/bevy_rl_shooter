@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use bevy::prelude::*;
 
 use bevystein::rendering::*;
@@ -9,8 +11,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(AIGymPlugin);
 
-    app.add_startup_system(setup.after("setup_rendering"))
-        .add_system(rotator_system);
+    app.add_startup_system(setup.after("setup_rendering"));
+    app.add_system(rotator_system);
 
     app.run();
 }
@@ -22,9 +24,10 @@ struct RotatingCube;
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_assets: Res<AIGymAssets>,
+    ai_gym_assets: Res<Arc<Mutex<AIGymAssets>>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    let ai_gym_assets = ai_gym_assets.lock().unwrap();
     let cube_handle = meshes.add(Mesh::from(shape::Cube { size: 4.0 }));
     let cube_material_handle = materials.add(StandardMaterial {
         base_color: Color::rgb(0.8, 0.7, 0.6),
@@ -43,6 +46,11 @@ fn setup(
         })
         .insert(RotatingCube)
         .insert(ai_gym_assets.render_layer.unwrap());
+
+    commands.spawn_bundle(PointLightBundle {
+        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+        ..default()
+    });
 
     commands
         .spawn_bundle(PerspectiveCameraBundle::<FirstPassCamera> {

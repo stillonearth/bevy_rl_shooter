@@ -1,10 +1,13 @@
+use std::num::NonZeroU32;
+use std::sync::{Arc, Mutex};
+
 use bevy::{
     core_pipeline::{
         draw_3d_graph, node, AlphaMask3d, Opaque3d, RenderTargetClearColors, Transparent3d,
     },
     prelude::*,
     render::{
-        camera::{ActiveCamera, Camera, CameraTypePlugin, RenderTarget},
+        camera::{ActiveCamera, CameraTypePlugin, RenderTarget},
         render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, SlotValue},
         render_phase::RenderPhase,
         render_resource::{
@@ -21,7 +24,7 @@ use bevy::render::renderer::RenderDevice;
 use bevy::render::renderer::RenderQueue;
 
 use bytemuck;
-use std::num::NonZeroU32;
+
 use wgpu::ImageCopyBuffer;
 use wgpu::ImageDataLayout;
 
@@ -39,11 +42,39 @@ pub const HEIGHT: u32 = 512;
 
 impl Plugin for AIGymPlugin {
     fn build(&self, app: &mut App) {
-        setup_rendering(app);
-
         app.add_plugin(CameraTypePlugin::<FirstPassCamera>::default());
         app.add_startup_system(setup.label("setup_rendering"));
-        app.init_resource::<AIGymAssets>();
+
+        let gym_assets = Arc::new(Mutex::new(AIGymAssets {
+            render_layer: None,
+            render_target: None,
+            rendered_image: None,
+        }));
+
+        app.insert_resource(gym_assets.clone());
+
+        // Render app
+        let render_app = app.sub_app_mut(RenderApp);
+        let driver = FirstPassCameraDriver::new(&mut render_app.world);
+        // This will add 3D render phases for the new camera.
+        render_app.add_system_to_stage(RenderStage::Extract, extract_first_pass_camera_phases);
+        render_app.add_system_to_stage(RenderStage::Render, save_image);
+        render_app.insert_resource(gym_assets.clone());
+
+        let mut graph = render_app.world.resource_mut::<RenderGraph>();
+
+        // Add a node for the first pass.
+        graph.add_node(FIRST_PASS_DRIVER, driver);
+
+        // The first pass's dependencies include those of the main pass.
+        graph
+            .add_node_edge(node::MAIN_PASS_DEPENDENCIES, FIRST_PASS_DRIVER)
+            .unwrap();
+
+        // Insert the first pass node: CLEAR_PASS_DRIVER -> FIRST_PASS_DRIVER -> MAIN_PASS_DRIVER
+        graph
+            .add_node_edge(node::CLEAR_PASS_DRIVER, FIRST_PASS_DRIVER)
+            .unwrap();
     }
 }
 
@@ -59,29 +90,6 @@ fn extract_first_pass_camera_phases(
             RenderPhase::<Transparent3d>::default(),
         ));
     }
-}
-
-fn setup_rendering(app: &mut App) {
-    let render_app = app.sub_app_mut(RenderApp);
-    let driver = FirstPassCameraDriver::new(&mut render_app.world);
-    // This will add 3D render phases for the new camera.
-    render_app.add_system_to_stage(RenderStage::Extract, extract_first_pass_camera_phases);
-    render_app.add_system_to_stage(RenderStage::Render, save_image);
-
-    let mut graph = render_app.world.resource_mut::<RenderGraph>();
-
-    // Add a node for the first pass.
-    graph.add_node(FIRST_PASS_DRIVER, driver);
-
-    // The first pass's dependencies include those of the main pass.
-    graph
-        .add_node_edge(node::MAIN_PASS_DEPENDENCIES, FIRST_PASS_DRIVER)
-        .unwrap();
-
-    // Insert the first pass node: CLEAR_PASS_DRIVER -> FIRST_PASS_DRIVER -> MAIN_PASS_DRIVER
-    graph
-        .add_node_edge(node::CLEAR_PASS_DRIVER, FIRST_PASS_DRIVER)
-        .unwrap();
 }
 
 // A node for the first pass camera that runs draw_3d_graph with this camera.
@@ -139,6 +147,7 @@ fn save_image(
     gpu_images: Res<RenderAssets<Image>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    ai_gym_assets: Res<Arc<Mutex<AIGymAssets>>>,
 ) {
     let gpu_image = gpu_images
         .iter()
@@ -219,12 +228,17 @@ fn save_image(
                          //   myPointer = NULL;
                          // It effectively frees the memory
 
-    // Returns data from buffer
-    image::save_buffer("test.png", &result, WIDTH, HEIGHT, image::ColorType::Rgba8).unwrap();
+    let mut ai_gym_assets = ai_gym_assets.lock().unwrap();
+
+    let img: image::RgbaImage = image::ImageBuffer::from_raw(WIDTH, HEIGHT, result).unwrap();
+    ai_gym_assets.rendered_image = Some(img.clone());
+
+    img.save("screen.png");
 }
 
+#[derive(Clone)]
 pub struct AIGymAssets {
-    pub rendered_image: Option<Handle<Image>>,
+    pub rendered_image: Option<image::RgbaImage>,
     pub render_layer: Option<RenderLayers>,
     pub render_target: Option<RenderTarget>,
 }
@@ -242,8 +256,9 @@ impl FromWorld for AIGymAssets {
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut ai_gym_assets: ResMut<AIGymAssets>,
+    ai_gym_assets: ResMut<Arc<Mutex<AIGymAssets>>>,
     mut clear_colors: ResMut<RenderTargetClearColors>,
+    mut windows: ResMut<Windows>,
 ) {
     let size = Extent3d {
         width: 512,
@@ -257,7 +272,7 @@ fn setup(
             label: Some("render_image"),
             size,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            format: TextureFormat::Rgba8UnormSrgb, // ::Bgra8UnormSrgb,
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
@@ -273,7 +288,9 @@ fn setup(
 
     let image_handle = images.add(image);
 
-    ai_gym_assets.rendered_image = Some(image_handle.clone());
+    let mut ai_gym_assets = ai_gym_assets.lock().unwrap();
+
+    // ai_gym_assets.rendered_image = Some(image_handle.clone());
     ai_gym_assets.render_layer = Some(RenderLayers::layer(1));
     ai_gym_assets.render_target = Some(RenderTarget::Image(image_handle.clone()));
 
@@ -286,7 +303,11 @@ fn setup(
             align_self: AlignSelf::Center,
             ..Default::default()
         },
-        image: ai_gym_assets.rendered_image.clone().unwrap().into(),
+        image: image_handle.clone().into(),
         ..Default::default()
     });
+
+    let window = windows.get_primary_mut().unwrap();
+    window.set_resolution(WIDTH as f32, HEIGHT as f32);
+    window.set_resizable(false);
 }
