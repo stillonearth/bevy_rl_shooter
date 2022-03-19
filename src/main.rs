@@ -5,6 +5,7 @@ use bevy::utils::Instant;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
 use big_brain::prelude::*;
 use clap::Parser;
+use futures::executor;
 use heron::*;
 use names::Generator;
 use rand::thread_rng;
@@ -1355,6 +1356,12 @@ fn delayed_control_system(
 // -----------
 
 fn main() {
+    let mut bevy_app = build_game_app();
+
+    bevy_app.run();
+}
+
+fn build_game_app() -> App {
     let args = Args::parse();
 
     let mut app = App::new();
@@ -1442,6 +1449,8 @@ fn main() {
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     }
 
+    return app;
+
     // This branch would panic on current version
     // else {
     //     app.add_state(AppState::MainMenu);
@@ -1454,6 +1463,4 @@ fn main() {
     //     );
     //     app.add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world));
     // }
-
-    app.run();
 }

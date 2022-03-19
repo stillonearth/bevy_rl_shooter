@@ -3,13 +3,18 @@ use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
 
 use bevystein::rendering::*;
+use std::thread;
 
 fn main() {
     let mut app = App::new();
     app.insert_resource(Msaa { samples: 4 })
         // Use 4x MSAA
         .add_plugins(DefaultPlugins)
-        .add_plugin(AIGymPlugin);
+        .add_plugin(AIGymPlugin)
+        .insert_resource(AIGymSettings {
+            width: 512,
+            height: 512,
+        });
 
     app.add_startup_system(setup.after("setup_rendering"));
     app.add_system(rotator_system);

@@ -30,6 +30,9 @@ use wgpu::ImageDataLayout;
 
 use futures::executor;
 use image;
+use std::io::Cursor;
+use std::thread;
+use tokio;
 
 pub struct AIGymSettings {
     pub width: u32,
@@ -79,6 +82,12 @@ impl Plugin for AIGymPlugin {
         graph
             .add_node_edge(node::CLEAR_PASS_DRIVER, FIRST_PASS_DRIVER)
             .unwrap();
+
+        thread::spawn(|| {
+            let server = rocket(gym_assets);
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(server.launch()).unwrap();
+        });
     }
 }
 
@@ -237,8 +246,6 @@ fn save_image(
     )
     .unwrap();
     ai_gym_assets.rendered_image = Some(img.clone());
-
-    img.save("screen.png");
 }
 
 #[derive(Clone)]
@@ -308,4 +315,26 @@ fn setup(
     let window = windows.get_primary_mut().unwrap();
     window.set_resolution(ai_gym_settings.width as f32, ai_gym_settings.height as f32);
     window.set_resizable(false);
+}
+
+// #[macro_use]
+use rocket::http::ContentType;
+use rocket::State;
+use rocket::*;
+
+#[rocket::get("/")]
+fn index(ai_gym_assets: &State<Arc<Mutex<AIGymAssets>>>) -> (ContentType, Vec<u8>) {
+    let ai_gym_assets = ai_gym_assets.lock().unwrap();
+    let image = ai_gym_assets.rendered_image.clone().unwrap();
+
+    let mut bytes: Vec<u8> = Vec::new();
+    image.write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png);
+
+    return (ContentType::PNG, bytes);
+}
+
+fn rocket(ai_gym_assets: Arc<Mutex<AIGymAssets>>) -> rocket::Rocket<rocket::Build> {
+    rocket::build()
+        .manage(ai_gym_assets)
+        .mount("/", routes![index])
 }
