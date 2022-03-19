@@ -2,19 +2,21 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 
-use bevystein::rendering::*;
-use std::thread;
+use bevystein::gym::*;
 
 fn main() {
     let mut app = App::new();
     app.insert_resource(Msaa { samples: 4 })
         // Use 4x MSAA
         .add_plugins(DefaultPlugins)
-        .add_plugin(AIGymPlugin)
         .insert_resource(AIGymSettings {
             width: 512,
             height: 512,
-        });
+        })
+        .insert_resource(Arc::new(Mutex::new(AIGymState {
+            ..Default::default()
+        })))
+        .add_plugin(AIGymPlugin);
 
     app.add_startup_system(setup.after("setup_rendering"));
     app.add_system(rotator_system);
@@ -26,13 +28,15 @@ fn main() {
 #[derive(Component)]
 struct RotatingCube;
 
+struct CubeAction;
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_assets: Res<Arc<Mutex<AIGymAssets>>>,
+    ai_gym_state: Res<Arc<Mutex<AIGymState>>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let ai_gym_assets = ai_gym_assets.lock().unwrap();
+    let ai_gym_state = ai_gym_state.lock().unwrap();
     let cube_handle = meshes.add(Mesh::from(shape::Cube { size: 4.0 }));
     let cube_material_handle = materials.add(StandardMaterial {
         base_color: Color::rgb(0.8, 0.7, 0.6),
@@ -50,7 +54,7 @@ fn setup(
             ..default()
         })
         .insert(RotatingCube)
-        .insert(ai_gym_assets.render_layer.unwrap());
+        .insert(ai_gym_state.render_layer.unwrap());
 
     commands.spawn_bundle(PointLightBundle {
         transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
@@ -60,14 +64,14 @@ fn setup(
     commands
         .spawn_bundle(PerspectiveCameraBundle::<FirstPassCamera> {
             camera: Camera {
-                target: ai_gym_assets.render_target.clone().unwrap(),
+                target: ai_gym_state.render_target.clone().unwrap(),
                 ..default()
             },
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
                 .looking_at(Vec3::default(), Vec3::Y),
             ..PerspectiveCameraBundle::new()
         })
-        .insert(ai_gym_assets.render_layer.unwrap());
+        .insert(ai_gym_state.render_layer.unwrap());
 }
 
 /// Rotates the inner cube (first pass)

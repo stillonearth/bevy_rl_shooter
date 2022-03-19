@@ -1,21 +1,21 @@
-use bevy::app::AppExit;
-use bevy::ecs::event::Events;
+use std::ops::Range;
+use std::sync::{Arc, Mutex};
+use rand::thread_rng;
+use rand::{seq::SliceRandom, Rng};
+
 use bevy::prelude::*;
 use bevy::utils::Instant;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
 use big_brain::prelude::*;
-use clap::Parser;
-use futures::executor;
 use heron::*;
-use names::Generator;
-use rand::thread_rng;
-use rand::{seq::SliceRandom, Rng};
-use serde::{Deserialize, Serialize};
-use std::ops::Range;
-use std::sync::{Arc, Mutex};
 
+use clap::Parser;
+use names::Generator;
+use serde::{Deserialize, Serialize};
+use bitflags::bitflags;
+
+mod gym;
 mod map;
-mod rendering;
 
 const DEBUG: bool = false;
 
@@ -104,6 +104,9 @@ pub struct EventDamage {
     to: String,
 }
 
+#[derive(Debug)]
+pub struct EventNewRound;
+
 // ------
 // States
 // ------
@@ -112,7 +115,7 @@ pub struct EventDamage {
 enum AppState {
     MainMenu,
     InGame,
-    Pause,
+    Control,
     RoundOver,
 }
 
@@ -225,9 +228,9 @@ fn spawn_game_world(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    ai_gym_assets: Res<Arc<Mutex<rendering::AIGymAssets>>>,
+    ai_gym_state: Res<Arc<Mutex<gym::AIGymState>>>,
 ) {
-    let ai_gym_assets = ai_gym_assets.lock().unwrap();
+    let ai_gym_state = ai_gym_state.lock().unwrap();
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
@@ -264,7 +267,7 @@ fn spawn_game_world(
                 global_transform: GlobalTransform::identity(),
                 ..Default::default()
             })
-            // .insert(ai_gym_assets.render_layer.unwrap())
+            // .insert(ai_gym_state.render_layer.unwrap())
             .insert(RigidBody::Static)
             .insert(CollisionShape::Cuboid {
                 half_extends: Vec3::new(1.0, 1.0, 1.0),
@@ -283,9 +286,9 @@ pub fn spawn_player(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_assets: Res<Arc<Mutex<rendering::AIGymAssets>>>,
+    ai_gym_state: Res<Arc<Mutex<gym::AIGymState>>>,
 ) {
-    let ai_gym_assets = ai_gym_assets.lock().unwrap();
+    let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
     let player = Player {
@@ -316,9 +319,9 @@ pub fn spawn_player(
             });
 
             // Camera
-            cell.spawn_bundle(PerspectiveCameraBundle::<rendering::FirstPassCamera> {
+            cell.spawn_bundle(PerspectiveCameraBundle::<gym::FirstPassCamera> {
                 camera: Camera {
-                    target: ai_gym_assets.render_target.clone().unwrap(),
+                    target: ai_gym_state.render_target.clone().unwrap(),
                     ..default()
                 },
                 ..PerspectiveCameraBundle::new()
@@ -339,9 +342,7 @@ pub fn spawn_player(
         })
         .insert(CollisionShape::Sphere { radius: 1.0 })
         .insert(PlayerPerspective)
-        .insert(Acceleration::from_linear(Vec3::ZERO))
         .insert(Velocity::from_linear(Vec3::ZERO))
-        .insert(Acceleration::from_linear(Vec3::ZERO))
         .insert(RigidBody::Dynamic)
         .insert(PhysicMaterial {
             density: 200.0,
@@ -444,14 +445,63 @@ pub fn spawn_enemies(
     }
 }
 
-fn control_player(
+bitflags! {
+    struct PlayerActionFlags: u32 {
+        const IDLE = 1 << 0;
+        const FORWARD = 1 << 1;
+        const BACKWARD = 1 << 2;
+        const LEFT = 1 << 3;
+        const RIGHT = 1 << 4;
+        const TURN_LEFT = 1 << 5;
+        const TURN_RIGHT = 1 << 6;
+        const SHOOT = 1 << 7;
+    }
+}
+
+fn control_player_keyboard(
     keys: Res<Input<KeyCode>>,
+    player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
+    collision_events: EventReader<CollisionEvent>,
+    event_gun_shot: EventWriter<EventGunShot>,
+) {
+    let mut player_action = PlayerActionFlags::IDLE;
+
+    for key in keys.get_pressed() {
+        if *key == KeyCode::W {
+            player_action |= PlayerActionFlags::FORWARD;
+        }
+        if *key == KeyCode::A {
+            player_action |= PlayerActionFlags::BACKWARD;
+        }
+        if *key == KeyCode::S {
+            player_action |= PlayerActionFlags::LEFT;
+        }
+        if *key == KeyCode::D {
+            player_action |= PlayerActionFlags::RIGHT;
+        }
+        if *key == KeyCode::Q {
+            player_action |= PlayerActionFlags::TURN_LEFT;
+        }
+        if *key == KeyCode::E {
+            player_action |= PlayerActionFlags::TURN_RIGHT;
+        }
+        if keys.just_pressed(KeyCode::Space) {
+            player_action |= PlayerActionFlags::SHOOT;
+        }
+    }
+
+    control_player(
+        player_action,
+        player_movement_q,
+        collision_events,
+        event_gun_shot,
+    );
+}
+
+fn control_player(
+    player_action: PlayerActionFlags,
     mut player_movement_q: Query<
-        (
-            &mut heron::prelude::Velocity,
-            &mut heron::prelude::Acceleration,
-            &Transform,
-        ),
+        (&mut heron::prelude::Velocity, &Transform),
         With<PlayerPerspective>,
     >,
     mut collision_events: EventReader<CollisionEvent>,
@@ -465,40 +515,32 @@ fn control_player(
         !layers.contains_group(Layer::Player) && layers.contains_group(Layer::World)
     }
 
-    for (mut velocity, mut acceleration, transform) in player_movement_q.iter_mut() {
+    for (mut velocity, transform) in player_movement_q.iter_mut() {
         *velocity = Velocity::from_linear(Vec3::ZERO);
-        for key in keys.get_pressed() {
-            if *key == KeyCode::W {
-                *acceleration = Acceleration::from_linear(0.001 * transform.forward().normalize());
-                *velocity =
-                    velocity.with_linear(velocity.linear + 10. * transform.forward().normalize());
-            }
-            if *key == KeyCode::A {
-                *acceleration = Acceleration::from_linear(0.001 * transform.left().normalize());
-                *velocity =
-                    velocity.with_linear(velocity.linear + 10. * transform.left().normalize());
-            }
-            if *key == KeyCode::S {
-                *acceleration = Acceleration::from_linear(0.001 * -transform.forward().normalize());
-                *velocity =
-                    velocity.with_linear(velocity.linear + 10. * -transform.forward().normalize());
-            }
-            if *key == KeyCode::D {
-                *acceleration = Acceleration::from_linear(0.001 * transform.right().normalize());
-                *velocity =
-                    velocity.with_linear(velocity.linear + 10. * transform.right().normalize());
-            }
-            if *key == KeyCode::Q {
-                *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, 0.5 * 3.14));
-            }
-            if *key == KeyCode::E {
-                *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, -0.5 * 3.14));
-            }
-            if keys.just_pressed(KeyCode::Space) {
-                event_gun_shot.send(EventGunShot {
-                    from: "Player 1".to_string(),
-                });
-            }
+        if player_action.contains(PlayerActionFlags::FORWARD) {
+            *velocity =
+                velocity.with_linear(velocity.linear + 10. * transform.forward().normalize());
+        }
+        if player_action.contains(PlayerActionFlags::BACKWARD) {
+            *velocity = velocity.with_linear(velocity.linear + 10. * transform.left().normalize());
+        }
+        if player_action.contains(PlayerActionFlags::LEFT) {
+            *velocity =
+                velocity.with_linear(velocity.linear + 10. * -transform.forward().normalize());
+        }
+        if player_action.contains(PlayerActionFlags::RIGHT) {
+            *velocity = velocity.with_linear(velocity.linear + 10. * transform.right().normalize());
+        }
+        if player_action.contains(PlayerActionFlags::TURN_LEFT) {
+            *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, 0.5 * 3.14));
+        }
+        if player_action.contains(PlayerActionFlags::TURN_RIGHT) {
+            *velocity = velocity.with_angular(AxisAngle::new(Vec3::Y, -0.5 * 3.14));
+        }
+        if player_action.contains(PlayerActionFlags::SHOOT) {
+            event_gun_shot.send(EventGunShot {
+                from: "Player 1".to_string(),
+            });
         }
 
         collision_events
@@ -680,6 +722,14 @@ fn event_gun_shot(
             commands.entity(hit_entity).despawn();
         }
     }
+}
+
+fn event_new_round(
+    mut commands: Commands,
+    mut player_query: Query<(Entity, &Children, &mut Player, &mut Velocity)>,
+    mut billboard_query: Query<(Entity, &mut EnemyAnimation, &Billboard)>,
+    mut event_damage: EventReader<EventDamage>,
+) {
 }
 
 fn event_damage(
@@ -1122,14 +1172,14 @@ fn check_termination_training(
     player_query: Query<&Player>,
     time: Res<Time>,
     mut round_timer: ResMut<RoundTimer>,
-    mut event_app_exit: ResMut<Events<AppExit>>,
+    mut event_writer_new_round: EventWriter<EventNewRound>,
 ) {
     let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
     if player_1.health == 0 || seconds_left == 0 {
-        event_app_exit.send(AppExit);
+        event_writer_new_round.send(EventNewRound{});
     }
 }
 
@@ -1252,7 +1302,7 @@ fn kill_action_system(
                     } else {
                         // turn to next target
 
-                        *velocity = Velocity::from_linear(Vec3::ZERO);
+                        *velocity = Velocity::from_linear(Vec3::ZERO);qw
 
                         let duration = kill.last_action.elapsed().as_secs_f32();
                         if duration <= 0.5 {
@@ -1276,7 +1326,6 @@ fn kill_action_system(
                         });
 
                         if near_enemy.is_none() {
-                            println!("!!!");
                             continue;
                         }
 
@@ -1338,17 +1387,18 @@ pub fn bloodthirsty_scorer_system(
 
 struct DelayedControlTimer(Timer);
 
-fn delayed_control_system(
+fn turnbased_control_system(
     mut app_state: ResMut<State<AppState>>,
     time: Res<Time>,
     mut timer: ResMut<DelayedControlTimer>,
 ) {
-    // update our timer with the time elapsed since the last update
-    // if that caused the timer to finish, we say hello to everyone
     if timer.0.tick(time.delta()).just_finished() {
-        app_state.set(AppState::Pause);
-        println!("control frame !");
+        app_state.set(AppState::Control).unwrap();
     }
+}
+
+fn delayed_control_syst(mut app_state: ResMut<State<AppState>>, ai_gym_state: Res<Arc<Mutex<gym::AIGymState>>>,) {
+    
 }
 
 // -----------
@@ -1375,7 +1425,7 @@ fn build_game_app() -> App {
         .add_event::<EventDamage>()
         // Plugins
         .add_plugins(DefaultPlugins)
-        .add_plugin(rendering::AIGymPlugin)
+        .add_plugin(gym::AIGymPlugin)
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
@@ -1422,7 +1472,7 @@ fn build_game_app() -> App {
         // Initialize Resources
         .init_resource::<GameMap>()
         .init_resource::<GameAssets>()
-        .insert_resource(rendering::AIGymSettings {
+        .insert_resource(gym::AIGymSettings {
             width: 512,
             height: 512,
         });
@@ -1433,7 +1483,7 @@ fn build_game_app() -> App {
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
                 .with_system(check_termination_training)
-                .with_system(delayed_control_system),
+                .with_system(turnbased_control_system),
         );
 
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
@@ -1442,7 +1492,7 @@ fn build_game_app() -> App {
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(control_player)
+                .with_system(control_player_keyboard)
                 .with_system(check_termination_training),
         );
 
