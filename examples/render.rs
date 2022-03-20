@@ -13,10 +13,11 @@ fn main() {
             width: 512,
             height: 512,
         })
-        .insert_resource(Arc::new(Mutex::new(AIGymState {
+        .insert_resource(Arc::new(Mutex::new(AIGymState::<CubeAction> {
+            action: CubeAction {},
             ..Default::default()
         })))
-        .add_plugin(AIGymPlugin);
+        .add_plugin(AIGymPlugin::<CubeAction>::default());
 
     app.add_startup_system(setup.after("setup_rendering"));
     app.add_system(rotator_system);
@@ -28,12 +29,14 @@ fn main() {
 #[derive(Component)]
 struct RotatingCube;
 
+#[derive(Default, Clone)]
+
 struct CubeAction;
 
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState>>>,
+    ai_gym_state: Res<Arc<Mutex<AIGymState<CubeAction>>>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
