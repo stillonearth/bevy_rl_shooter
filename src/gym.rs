@@ -1,5 +1,10 @@
+use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
+use std::thread;
+
+use futures::executor;
+use image;
 
 use bevy::{
     core_pipeline::{
@@ -35,11 +40,9 @@ use gotham::router::builder::*;
 use gotham::router::Router;
 use gotham::state::StateData;
 use gotham::state::{FromState, State};
+use hyper::{Body, Response, StatusCode};
 
-use futures::executor;
-use image;
-use std::thread;
-
+#[derive(Clone)]
 pub struct AIGymSettings {
     pub width: u32,
     pub height: u32,
@@ -53,11 +56,15 @@ use std::marker::PhantomData;
 
 #[derive(Clone, Default)]
 pub struct AIGymState<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> {
-    pub rendered_image: Option<image::RgbaImage>,
-    pub render_layer: Option<RenderLayers>,
-    pub render_target: Option<RenderTarget>,
-    pub render_image_handle: Option<Handle<Image>>,
+    // bevy internal state
+    pub __render_layer: Option<RenderLayers>,
+    pub __render_target: Option<RenderTarget>,
+    pub __render_image_handle: Option<Handle<Image>>,
+
+    // State
+    pub screen: Option<image::RgbaImage>,
     pub action: T,
+    pub reward: Vec<f32>,
 }
 
 #[derive(Component, Default)]
@@ -81,6 +88,8 @@ impl<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> Plugin for AI
             .unwrap()
             .clone();
 
+        let ai_gym_settings = app.world.get_resource::<AIGymSettings>().unwrap().clone();
+
         // Render app
         let render_app = app.sub_app_mut(RenderApp);
         let driver = FirstPassCameraDriver::new(&mut render_app.world);
@@ -88,6 +97,7 @@ impl<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> Plugin for AI
         render_app.add_system_to_stage(RenderStage::Extract, extract_first_pass_camera_phases);
         render_app.add_system_to_stage(RenderStage::Render, save_image::<T>);
         render_app.insert_resource(ai_gym_state.clone());
+        render_app.insert_resource(ai_gym_settings.clone());
 
         let mut graph = render_app.world.resource_mut::<RenderGraph>();
 
@@ -124,43 +134,9 @@ impl<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> Plugin for AI
     }
 }
 
-#[derive(Clone, StateData)]
-struct GothamState<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> {
-    inner: Arc<Mutex<AIGymState<T>>>,
-}
-
-fn router<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
-    state: GothamState<T>,
-) -> Router {
-    let middleware = StateMiddleware::new(state);
-    let pipeline = single_middleware(middleware);
-
-    let (chain, pipelines) = single_pipeline(pipeline);
-
-    // build a router with the chain & pipeline
-    build_router(chain, pipelines, |route| {
-        route.get("/screen.png").to(screen::<T>);
-    })
-}
-
-use hyper::{Body, Response, StatusCode};
-use std::io::Cursor;
-
-fn screen<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
-    state: State,
-) -> (State, Response<Body>) {
-    let state_: &GothamState<T> = GothamState::borrow_from(&state);
-    let state__ = state_.inner.lock().unwrap().clone();
-    let image = state__.rendered_image.clone().unwrap();
-
-    let mut bytes: Vec<u8> = Vec::new();
-    image.write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png);
-
-    let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
-
-    return (state, response);
-    // response.headers.conte(state, response)
-}
+// ------------------
+// Rendering to Image
+// ------------------
 
 // Add 3D render phases for FIRST_PASS_CAMERA.
 fn extract_first_pass_camera_phases(
@@ -176,7 +152,6 @@ fn extract_first_pass_camera_phases(
     }
 }
 
-// A node for the first pass camera that runs draw_3d_graph with this camera.
 struct FirstPassCameraDriver {
     query: QueryState<Entity, With<FirstPassCamera>>,
 }
@@ -232,11 +207,12 @@ fn save_image<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     ai_gym_state: Res<Arc<Mutex<AIGymState<T>>>>,
+    ai_gym_settings: Res<AIGymSettings>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
     let gpu_image = gpu_images
-        .get(&ai_gym_state.render_image_handle.clone().unwrap())
+        .get(&ai_gym_state.__render_image_handle.clone().unwrap())
         .unwrap();
 
     let device = render_device.wgpu_device();
@@ -254,8 +230,8 @@ fn save_image<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
         render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
     let size = Extent3d {
-        width: 512,
-        height: 512,
+        width: ai_gym_settings.width,
+        height: ai_gym_settings.height,
         ..default()
     };
 
@@ -295,20 +271,12 @@ fn save_image<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
         panic!("{}", err.unwrap().to_string());
     }
 
-    // if let Ok(()) = executor::block_on(buffer_future).err() {
-    // Gets contents of buffer
     let data = buffer_slice.get_mapped_range();
-    // Since contents are got in bytes, this converts these bytes back to u32
     let result: Vec<u8> = bytemuck::cast_slice(&data).to_vec();
 
-    // With the current interface, we have to make sure all mapped views are
-    // dropped before we unmap the buffer.
+    // free memory
     drop(data);
-    destination.unmap(); // Unmaps buffer from memory
-                         // If you are familiar with C++ these 2 lines can be thought of similarly to:
-                         //   delete myPointer;
-                         //   myPointer = NULL;
-                         // It effectively frees the memory
+    destination.unmap();
 
     let img: image::RgbaImage = image::ImageBuffer::from_raw(
         gpu_image.size.width as u32,
@@ -316,7 +284,7 @@ fn save_image<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
         result,
     )
     .unwrap();
-    ai_gym_state.rendered_image = Some(img.clone());
+    ai_gym_state.screen = Some(img.clone());
 }
 
 fn setup<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
@@ -358,11 +326,11 @@ fn setup<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
     // ai_gym_state.rendered_image = Some(image_handle.clone());
-    ai_gym_state.render_layer = Some(RenderLayers::layer(1));
-    ai_gym_state.render_target = Some(RenderTarget::Image(image_handle.clone()));
-    ai_gym_state.render_image_handle = Some(image_handle.clone());
+    ai_gym_state.__render_layer = Some(RenderLayers::layer(1));
+    ai_gym_state.__render_target = Some(RenderTarget::Image(image_handle.clone()));
+    ai_gym_state.__render_image_handle = Some(image_handle.clone());
 
-    clear_colors.insert(ai_gym_state.render_target.clone().unwrap(), Color::WHITE);
+    clear_colors.insert(ai_gym_state.__render_target.clone().unwrap(), Color::WHITE);
 
     // UI viewport for game
     commands.spawn_bundle(UiCameraBundle::default());
@@ -378,4 +346,80 @@ fn setup<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     let window = windows.get_primary_mut().unwrap();
     window.set_resolution(ai_gym_settings.width as f32, ai_gym_settings.height as f32);
     window.set_resizable(false);
+}
+
+// ---------------
+// AI Gym REST API
+// ---------------
+
+#[derive(Clone, StateData)]
+struct GothamState<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> {
+    inner: Arc<Mutex<AIGymState<T>>>,
+}
+
+fn router<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
+    state: GothamState<T>,
+) -> Router {
+    let middleware = StateMiddleware::new(state);
+    let pipeline = single_middleware(middleware);
+
+    let (chain, pipelines) = single_pipeline(pipeline);
+
+    // build a router with the chain & pipeline
+    build_router(chain, pipelines, |route| {
+        route.get("/screen.png").to(screen::<T>);
+        route.post("/step").to(screen::<T>);
+        route.post("/reset").to(reset::<T>);
+    })
+}
+
+fn screen<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
+    state: State,
+) -> (State, Response<Body>) {
+    let state_: &GothamState<T> = GothamState::borrow_from(&state);
+    let state__ = state_.inner.lock().unwrap().clone();
+    let image = state__.screen.clone().unwrap();
+
+    let mut bytes: Vec<u8> = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
+        .unwrap();
+
+    let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
+
+    return (state, response);
+}
+
+fn state<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
+    state: State,
+) -> (State, Response<Body>) {
+    let state_: &GothamState<T> = GothamState::borrow_from(&state);
+    let state__ = state_.inner.lock().unwrap().clone();
+    let image = state__.screen.clone().unwrap();
+
+    let mut bytes: Vec<u8> = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
+        .unwrap();
+
+    let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
+
+    return (state, response);
+}
+
+fn reset<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
+    state: State,
+) -> (State, Response<Body>) {
+    let state_: &GothamState<T> = GothamState::borrow_from(&state);
+    let state__ = state_.inner.lock().unwrap().clone();
+    let image = state__.screen.clone().unwrap();
+
+    let mut bytes: Vec<u8> = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
+        .unwrap();
+
+    let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
+
+    return (state, response);
 }

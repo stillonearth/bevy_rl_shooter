@@ -1,7 +1,7 @@
-use std::ops::Range;
-use std::sync::{Arc, Mutex};
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
+use std::ops::Range;
+use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use bevy::utils::Instant;
@@ -9,10 +9,10 @@ use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh,
 use big_brain::prelude::*;
 use heron::*;
 
+use bitflags::bitflags;
 use clap::Parser;
 use names::Generator;
 use serde::{Deserialize, Serialize};
-use bitflags::bitflags;
 
 mod gym;
 mod map;
@@ -228,9 +228,7 @@ fn spawn_game_world(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    ai_gym_state: Res<Arc<Mutex<gym::AIGymState>>>,
 ) {
-    let ai_gym_state = ai_gym_state.lock().unwrap();
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
@@ -267,7 +265,6 @@ fn spawn_game_world(
                 global_transform: GlobalTransform::identity(),
                 ..Default::default()
             })
-            // .insert(ai_gym_state.render_layer.unwrap())
             .insert(RigidBody::Static)
             .insert(CollisionShape::Cuboid {
                 half_extends: Vec3::new(1.0, 1.0, 1.0),
@@ -286,7 +283,7 @@ pub fn spawn_player(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_state: Res<Arc<Mutex<gym::AIGymState>>>,
+    ai_gym_state: Res<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
@@ -321,7 +318,7 @@ pub fn spawn_player(
             // Camera
             cell.spawn_bundle(PerspectiveCameraBundle::<gym::FirstPassCamera> {
                 camera: Camera {
-                    target: ai_gym_state.render_target.clone().unwrap(),
+                    target: ai_gym_state.__render_target.clone().unwrap(),
                     ..default()
                 },
                 ..PerspectiveCameraBundle::new()
@@ -446,7 +443,8 @@ pub fn spawn_enemies(
 }
 
 bitflags! {
-    struct PlayerActionFlags: u32 {
+    #[derive(Default)]
+    pub struct PlayerActionFlags: u32 {
         const IDLE = 1 << 0;
         const FORWARD = 1 << 1;
         const BACKWARD = 1 << 2;
@@ -1179,7 +1177,7 @@ fn check_termination_training(
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
     if player_1.health == 0 || seconds_left == 0 {
-        event_writer_new_round.send(EventNewRound{});
+        event_writer_new_round.send(EventNewRound {});
     }
 }
 
@@ -1302,7 +1300,7 @@ fn kill_action_system(
                     } else {
                         // turn to next target
 
-                        *velocity = Velocity::from_linear(Vec3::ZERO);qw
+                        *velocity = Velocity::from_linear(Vec3::ZERO);
 
                         let duration = kill.last_action.elapsed().as_secs_f32();
                         if duration <= 0.5 {
@@ -1387,18 +1385,73 @@ pub fn bloodthirsty_scorer_system(
 
 struct DelayedControlTimer(Timer);
 
-fn turnbased_control_system(
+fn turnbased_control_system_switch(
     mut app_state: ResMut<State<AppState>>,
     time: Res<Time>,
     mut timer: ResMut<DelayedControlTimer>,
+    mut physics_time: ResMut<PhysicsTime>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        app_state.set(AppState::Control).unwrap();
+        app_state.push(AppState::Control).unwrap();
+        physics_time.pause();
     }
 }
 
-fn delayed_control_syst(mut app_state: ResMut<State<AppState>>, ai_gym_state: Res<Arc<Mutex<gym::AIGymState>>>,) {
-    
+fn turnbased_control_system(
+    keys: Res<Input<KeyCode>>,
+    player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
+    collision_events: EventReader<CollisionEvent>,
+    event_gun_shot: EventWriter<EventGunShot>,
+    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    mut app_state: ResMut<State<AppState>>,
+    mut physics_time: ResMut<PhysicsTime>,
+    player_query: Query<&Player>,
+) {
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+
+    if keys.get_pressed().len() == 0 {
+        return;
+    }
+
+    for key in keys.get_pressed() {
+        if *key == KeyCode::W {
+            ai_gym_state.action = PlayerActionFlags::FORWARD;
+        } else if *key == KeyCode::A {
+            ai_gym_state.action = PlayerActionFlags::BACKWARD;
+        } else if *key == KeyCode::S {
+            ai_gym_state.action = PlayerActionFlags::LEFT;
+        } else if *key == KeyCode::D {
+            ai_gym_state.action = PlayerActionFlags::RIGHT;
+        } else if *key == KeyCode::Q {
+            ai_gym_state.action = PlayerActionFlags::TURN_LEFT;
+        } else if *key == KeyCode::E {
+            ai_gym_state.action = PlayerActionFlags::TURN_RIGHT;
+        } else if keys.just_pressed(KeyCode::Space) {
+            ai_gym_state.action = PlayerActionFlags::SHOOT;
+        }
+    }
+
+    let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
+    ai_gym_state.reward.push(player.score as f32);
+
+    let mut reward = ai_gym_state.reward[ai_gym_state.reward.len() - 1];
+    if ai_gym_state.reward.len() > 1 {
+        reward -= ai_gym_state.reward[ai_gym_state.reward.len() - 2];
+    }
+
+    println!("{:?}", ai_gym_state.action);
+    println!("reward: {}", reward);
+    println!("----");
+
+    control_player(
+        ai_gym_state.action,
+        player_movement_q,
+        collision_events,
+        event_gun_shot,
+    );
+
+    app_state.pop().unwrap();
+    physics_time.resume();
 }
 
 // -----------
@@ -1423,9 +1476,18 @@ fn build_game_app() -> App {
         // Events
         .add_event::<EventGunShot>()
         .add_event::<EventDamage>()
+        .add_event::<EventNewRound>()
         // Plugins
         .add_plugins(DefaultPlugins)
-        .add_plugin(gym::AIGymPlugin)
+        .insert_resource(gym::AIGymSettings {
+            width: 256,
+            height: 256,
+        })
+        .insert_resource(Arc::new(Mutex::new(gym::AIGymState::<PlayerActionFlags> {
+            action: PlayerActionFlags::IDLE,
+            ..Default::default()
+        })))
+        .add_plugin(gym::AIGymPlugin::<PlayerActionFlags>::default())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
@@ -1471,11 +1533,7 @@ fn build_game_app() -> App {
         .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
-        .init_resource::<GameAssets>()
-        .insert_resource(gym::AIGymSettings {
-            width: 512,
-            height: 512,
-        });
+        .init_resource::<GameAssets>();
 
     if args.mode == "train" {
         app.add_state(AppState::InGame);
@@ -1483,6 +1541,12 @@ fn build_game_app() -> App {
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
                 .with_system(check_termination_training)
+                .with_system(turnbased_control_system_switch),
+        );
+
+        app.add_system_set(
+            SystemSet::on_update(AppState::Control)
+                // Game Systems
                 .with_system(turnbased_control_system),
         );
 
