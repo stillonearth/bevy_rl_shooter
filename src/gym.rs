@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
@@ -19,7 +20,6 @@ use bevy::{
             Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
         },
         renderer::RenderContext,
-        view::RenderLayers,
         RenderApp, RenderStage,
     },
 };
@@ -40,7 +40,7 @@ use gotham::router::builder::*;
 use gotham::router::Router;
 use gotham::state::StateData;
 use gotham::state::{FromState, State};
-use hyper::{Body, Response, StatusCode};
+use hyper::{body, Body, Response, StatusCode};
 
 #[derive(Clone)]
 pub struct AIGymSettings {
@@ -54,17 +54,28 @@ pub trait Action {
 
 use std::marker::PhantomData;
 
+#[derive(Clone)]
+pub enum EnvironmentState {
+    Executing,
+    Paused,
+}
+
 #[derive(Clone, Default)]
 pub struct AIGymState<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> {
-    // bevy internal state
-    pub __render_layer: Option<RenderLayers>,
-    pub __render_target: Option<RenderTarget>,
-    pub __render_image_handle: Option<Handle<Image>>,
+    // These parts are made of hack trick internals.
+    pub __render_target: Option<RenderTarget>, // render target for camera -- window on in our case texture
+    pub __render_image_handle: Option<Handle<Image>>, // handle to image we use in bevy UI building.
+    // actual texture is GPU ram and we can't access it easily
+    pub __is_environment_paused: bool, // once set true we loop and wait until simulation epoch is finished
+    pub __action_unparsed_string: String, // we receive action as post parameter and parse it in bevy system
+    // Communication via mutex works but semantics are not straightforward.
+    // We keep it hacky or else it could become java boilerplate.
+    pub __request_for_reset: bool,
 
     // State
     pub screen: Option<image::RgbaImage>,
-    pub action: T,
-    pub reward: Vec<f32>,
+    pub rewards: Vec<f32>,
+    pub action: Option<T>,
 }
 
 #[derive(Component, Default)]
@@ -75,10 +86,10 @@ pub struct AIGymPlugin<T: 'static + Send + Sync + Clone + std::panic::RefUnwindS
     pub PhantomData<T>,
 );
 
-pub const FIRST_PASS_DRIVER: &str = "first_pass_driver";
-
 impl<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> Plugin for AIGymPlugin<T> {
     fn build(&self, app: &mut App) {
+        const FIRST_PASS_DRIVER: &str = "first_pass_driver";
+
         app.add_plugin(CameraTypePlugin::<FirstPassCamera>::default());
         app.add_startup_system(setup::<T>.label("setup_rendering"));
 
@@ -115,17 +126,8 @@ impl<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> Plugin for AI
             .unwrap();
 
         thread::spawn(move || {
-            let addr = "127.0.0.1:7878";
-
-            // gotham::start(addr, || Ok(say_hello));
-
-            // let server = rocket(ai_gym_state);
-            // let rt = tokio::runtime::Runtime::new().unwrap();
-
-            // rt.block_on(server.launch());
-
             gotham::start(
-                addr,
+                "127.0.0.1:7878",
                 router::<T>(GothamState {
                     inner: ai_gym_state,
                 }),
@@ -325,8 +327,6 @@ fn setup<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
 
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
-    // ai_gym_state.rendered_image = Some(image_handle.clone());
-    ai_gym_state.__render_layer = Some(RenderLayers::layer(1));
     ai_gym_state.__render_target = Some(RenderTarget::Image(image_handle.clone()));
     ai_gym_state.__render_image_handle = Some(image_handle.clone());
 
@@ -368,7 +368,7 @@ fn router<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     // build a router with the chain & pipeline
     build_router(chain, pipelines, |route| {
         route.get("/screen.png").to(screen::<T>);
-        route.post("/step").to(screen::<T>);
+        route.post("/step").to(step::<T>);
         route.post("/reset").to(reset::<T>);
     })
 }
@@ -389,37 +389,38 @@ fn screen<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
 
     return (state, response);
 }
+fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
+    mut state: State,
+) -> (State, String) {
+    let body_ = Body::take_from(&mut state);
+    let valid_body = executor::block_on(body::to_bytes(body_)).unwrap();
+    let action = String::from_utf8(valid_body.to_vec()).unwrap();
 
-fn state<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
-    state: State,
-) -> (State, Response<Body>) {
     let state_: &GothamState<T> = GothamState::borrow_from(&state);
-    let state__ = state_.inner.lock().unwrap().clone();
-    let image = state__.screen.clone().unwrap();
+    {
+        let mut ai_gym_state = state_.inner.lock().unwrap().clone();
+        ai_gym_state.__action_unparsed_string = action;
+    }
 
-    let mut bytes: Vec<u8> = Vec::new();
-    image
-        .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
-        .unwrap();
+    loop {
+        let ai_gym_state = state_.inner.lock().unwrap().clone();
 
-    let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
+        if ai_gym_state.__is_environment_paused {
+            let mut reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
+            if ai_gym_state.rewards.len() > 1 {
+                reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
+            }
 
-    return (state, response);
+            return (state, format!("{}", reward));
+        }
+    }
 }
 
 fn reset<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     state: State,
-) -> (State, Response<Body>) {
+) -> (State, String) {
     let state_: &GothamState<T> = GothamState::borrow_from(&state);
-    let state__ = state_.inner.lock().unwrap().clone();
-    let image = state__.screen.clone().unwrap();
-
-    let mut bytes: Vec<u8> = Vec::new();
-    image
-        .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
-        .unwrap();
-
-    let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
-
-    return (state, response);
+    let mut ai_gym_state = state_.inner.lock().unwrap().clone();
+    ai_gym_state.__request_for_reset = true;
+    return (state, "ok".to_string());
 }

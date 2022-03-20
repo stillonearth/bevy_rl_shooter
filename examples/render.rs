@@ -14,7 +14,6 @@ fn main() {
             height: 512,
         })
         .insert_resource(Arc::new(Mutex::new(AIGymState::<CubeAction> {
-            action: CubeAction {},
             ..Default::default()
         })))
         .add_plugin(AIGymPlugin::<CubeAction>::default());
@@ -56,25 +55,22 @@ fn setup(
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
             ..default()
         })
-        .insert(RotatingCube)
-        .insert(ai_gym_state.render_layer.unwrap());
+        .insert(RotatingCube);
 
     commands.spawn_bundle(PointLightBundle {
         transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
         ..default()
     });
 
-    commands
-        .spawn_bundle(PerspectiveCameraBundle::<FirstPassCamera> {
-            camera: Camera {
-                target: ai_gym_state.render_target.clone().unwrap(),
-                ..default()
-            },
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
-                .looking_at(Vec3::default(), Vec3::Y),
-            ..PerspectiveCameraBundle::new()
-        })
-        .insert(ai_gym_state.render_layer.unwrap());
+    commands.spawn_bundle(PerspectiveCameraBundle::<FirstPassCamera> {
+        camera: Camera {
+            target: ai_gym_state.__render_target.clone().unwrap(),
+            ..default()
+        },
+        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 15.0))
+            .looking_at(Vec3::default(), Vec3::Y),
+        ..PerspectiveCameraBundle::new()
+    });
 }
 
 /// Rotates the inner cube (first pass)

@@ -1389,9 +1389,13 @@ fn turnbased_control_system_switch(
     mut app_state: ResMut<State<AppState>>,
     time: Res<Time>,
     mut timer: ResMut<DelayedControlTimer>,
+    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
     mut physics_time: ResMut<PhysicsTime>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
+        let mut ai_gym_state = ai_gym_state.lock().unwrap();
+        ai_gym_state.__is_environment_paused == true;
+
         app_state.push(AppState::Control).unwrap();
         physics_time.pause();
     }
@@ -1415,36 +1419,32 @@ fn turnbased_control_system(
 
     for key in keys.get_pressed() {
         if *key == KeyCode::W {
-            ai_gym_state.action = PlayerActionFlags::FORWARD;
+            ai_gym_state.actions.push_back(PlayerActionFlags::FORWARD);
         } else if *key == KeyCode::A {
-            ai_gym_state.action = PlayerActionFlags::BACKWARD;
+            ai_gym_state.actions.push_back(PlayerActionFlags::BACKWARD);
         } else if *key == KeyCode::S {
-            ai_gym_state.action = PlayerActionFlags::LEFT;
+            ai_gym_state.actions.push_back(PlayerActionFlags::LEFT);
         } else if *key == KeyCode::D {
-            ai_gym_state.action = PlayerActionFlags::RIGHT;
+            ai_gym_state.actions.push_back(PlayerActionFlags::RIGHT);
         } else if *key == KeyCode::Q {
-            ai_gym_state.action = PlayerActionFlags::TURN_LEFT;
+            ai_gym_state.actions.push_back(PlayerActionFlags::TURN_LEFT);
         } else if *key == KeyCode::E {
-            ai_gym_state.action = PlayerActionFlags::TURN_RIGHT;
+            ai_gym_state.action.push_back( PlayerActionFlags::TURN_RIGH)T;
         } else if keys.just_pressed(KeyCode::Space) {
-            ai_gym_state.action = PlayerActionFlags::SHOOT;
+            ai_gym_state.actions.push_back(PlayerActionFlags::SHOOT);
         }
     }
 
     let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
-    ai_gym_state.reward.push(player.score as f32);
+    ai_gym_state.rewards.push(player.score as f32);
 
-    let mut reward = ai_gym_state.reward[ai_gym_state.reward.len() - 1];
-    if ai_gym_state.reward.len() > 1 {
-        reward -= ai_gym_state.reward[ai_gym_state.reward.len() - 2];
+    let mut reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
+    if ai_gym_state.rewards.len() > 1 {
+        reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
     }
 
-    println!("{:?}", ai_gym_state.action);
-    println!("reward: {}", reward);
-    println!("----");
-
     control_player(
-        ai_gym_state.action,
+        ai_gym_state.actions.pop_front().unwrap(),
         player_movement_q,
         collision_events,
         event_gun_shot,
@@ -1452,6 +1452,7 @@ fn turnbased_control_system(
 
     app_state.pop().unwrap();
     physics_time.resume();
+    ai_gym_state.__is_environment_paused == false;
 }
 
 // -----------
@@ -1484,7 +1485,6 @@ fn build_game_app() -> App {
             height: 256,
         })
         .insert_resource(Arc::new(Mutex::new(gym::AIGymState::<PlayerActionFlags> {
-            action: PlayerActionFlags::IDLE,
             ..Default::default()
         })))
         .add_plugin(gym::AIGymPlugin::<PlayerActionFlags>::default())
