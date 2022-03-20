@@ -1394,14 +1394,14 @@ fn turnbased_control_system_switch(
 ) {
     if timer.0.tick(time.delta()).just_finished() {
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
-        ai_gym_state.__is_environment_paused == true;
+        ai_gym_state.__is_environment_paused = true;
 
         app_state.push(AppState::Control).unwrap();
         physics_time.pause();
     }
 }
 
-fn turnbased_control_system(
+fn turnbased_keyboard_control_system(
     keys: Res<Input<KeyCode>>,
     player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
     collision_events: EventReader<CollisionEvent>,
@@ -1419,19 +1419,19 @@ fn turnbased_control_system(
 
     for key in keys.get_pressed() {
         if *key == KeyCode::W {
-            ai_gym_state.actions.push_back(PlayerActionFlags::FORWARD);
+            ai_gym_state.action = Some(PlayerActionFlags::FORWARD);
         } else if *key == KeyCode::A {
-            ai_gym_state.actions.push_back(PlayerActionFlags::BACKWARD);
+            ai_gym_state.action = Some(PlayerActionFlags::BACKWARD);
         } else if *key == KeyCode::S {
-            ai_gym_state.actions.push_back(PlayerActionFlags::LEFT);
+            ai_gym_state.action = Some(PlayerActionFlags::LEFT);
         } else if *key == KeyCode::D {
-            ai_gym_state.actions.push_back(PlayerActionFlags::RIGHT);
+            ai_gym_state.action = Some(PlayerActionFlags::RIGHT);
         } else if *key == KeyCode::Q {
-            ai_gym_state.actions.push_back(PlayerActionFlags::TURN_LEFT);
+            ai_gym_state.action = Some(PlayerActionFlags::TURN_LEFT);
         } else if *key == KeyCode::E {
-            ai_gym_state.action.push_back( PlayerActionFlags::TURN_RIGH)T;
+            ai_gym_state.action = Some(PlayerActionFlags::TURN_RIGHT);
         } else if keys.just_pressed(KeyCode::Space) {
-            ai_gym_state.actions.push_back(PlayerActionFlags::SHOOT);
+            ai_gym_state.action = Some(PlayerActionFlags::SHOOT);
         }
     }
 
@@ -1444,7 +1444,7 @@ fn turnbased_control_system(
     }
 
     control_player(
-        ai_gym_state.actions.pop_front().unwrap(),
+        ai_gym_state.action.unwrap(),
         player_movement_q,
         collision_events,
         event_gun_shot,
@@ -1452,7 +1452,55 @@ fn turnbased_control_system(
 
     app_state.pop().unwrap();
     physics_time.resume();
-    ai_gym_state.__is_environment_paused == false;
+    ai_gym_state.__is_environment_paused = false;
+}
+
+fn turnbased_text_control_system(
+    player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
+    collision_events: EventReader<CollisionEvent>,
+    event_gun_shot: EventWriter<EventGunShot>,
+    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    mut app_state: ResMut<State<AppState>>,
+    mut physics_time: ResMut<PhysicsTime>,
+    player_query: Query<&Player>,
+) {
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+
+    if ai_gym_state.__action_unparsed_string == "" {
+        return;
+    }
+
+    ai_gym_state.action = match ai_gym_state.__action_unparsed_string.as_str() {
+        "FORWARD" => Some(PlayerActionFlags::FORWARD),
+        "BACKWARD" => Some(PlayerActionFlags::BACKWARD),
+        "LEFT" => Some(PlayerActionFlags::LEFT),
+        "RIGHT" => Some(PlayerActionFlags::RIGHT),
+        "TURN_LEFT" => Some(PlayerActionFlags::TURN_LEFT),
+        "TURN_RIGHT" => Some(PlayerActionFlags::TURN_RIGHT),
+        "SHOOT" => Some(PlayerActionFlags::SHOOT),
+        _ => None,
+    };
+
+    ai_gym_state.__action_unparsed_string = "".to_string();
+
+    if ai_gym_state.action.is_none() {
+        return;
+    }
+
+    let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
+    ai_gym_state.rewards.push(player.score as f32);
+
+    control_player(
+        ai_gym_state.action.unwrap(),
+        player_movement_q,
+        collision_events,
+        event_gun_shot,
+    );
+
+    app_state.pop().unwrap();
+    physics_time.resume();
+    ai_gym_state.__is_environment_paused = false;
+    ai_gym_state.action = None;
 }
 
 // -----------
@@ -1547,7 +1595,7 @@ fn build_game_app() -> App {
         app.add_system_set(
             SystemSet::on_update(AppState::Control)
                 // Game Systems
-                .with_system(turnbased_control_system),
+                .with_system(turnbased_text_control_system),
         );
 
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));

@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
@@ -397,23 +396,33 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     let action = String::from_utf8(valid_body.to_vec()).unwrap();
 
     let state_: &GothamState<T> = GothamState::borrow_from(&state);
+
     {
-        let mut ai_gym_state = state_.inner.lock().unwrap().clone();
+        let mut ai_gym_state = state_.inner.lock().unwrap();
         ai_gym_state.__action_unparsed_string = action;
     }
 
+    let mut reward = 0.0;
     loop {
-        let ai_gym_state = state_.inner.lock().unwrap().clone();
+        let mut ai_gym_state = state_.inner.lock().unwrap();
 
         if ai_gym_state.__is_environment_paused {
-            let mut reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
+            if ai_gym_state.rewards.len() > 0 {
+                reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
+            }
             if ai_gym_state.rewards.len() > 1 {
                 reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
             }
 
-            return (state, format!("{}", reward));
+            println!("{}: {}", ai_gym_state.__action_unparsed_string, reward);
+
+            // ai_gym_state.__action_unparsed_string = "".to_string();
+
+            break;
         }
     }
+
+    return (state, format!("{}", reward));
 }
 
 fn reset<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
