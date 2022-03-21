@@ -1178,7 +1178,7 @@ fn execute_reset_request(
         ai_gym_state.action = None;
         ai_gym_state.rewards = Vec::new();
 
-        app_state.set(AppState::InGame).unwrap();
+        // app_state.set(AppState::InGame).unwrap();
     }
 }
 
