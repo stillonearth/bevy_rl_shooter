@@ -125,13 +125,17 @@ enum AppState {
 
 // Main Menu
 
-pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn main_screen(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    gym_settings: Res<gym::AIGymSettings>,
+) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
     let text = Text::with_section(
         "ROYAL BATTLE BEVYSTEIN",
         TextStyle {
-            font_size: 75.0,
+            font_size: 35.0,
             font: font.clone(),
             color: Color::rgb(0.2, 0.2, 0.2),
         },
@@ -141,12 +145,15 @@ pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
     );
 
-    // commands.spawn_bundle(UiCameraBundle::default());
+    commands.spawn_bundle(UiCameraBundle::default());
     // root node
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
-                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                size: Size::new(
+                    Val::Px(gym_settings.width as f32),
+                    Val::Px(gym_settings.height as f32),
+                ),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 flex_direction: FlexDirection::Column,
@@ -177,7 +184,7 @@ pub fn main_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
                             "NEW ROUND",
                             TextStyle {
                                 font: font.clone(),
-                                font_size: 30.0,
+                                font_size: 15.0,
                                 color: Color::rgb(0.9, 0.9, 0.9),
                             },
                             Default::default(),
@@ -216,8 +223,10 @@ fn button_system(
 }
 
 fn clear_world(mut commands: Commands, mut q: Query<(Entity, Without<gym::RenderComponent>)>) {
-    for (e, _) in q.iter_mut() {
-        commands.entity(e).despawn_recursive();
+    for (e, render_component) in q.iter_mut() {
+        if render_component {
+            commands.entity(e).despawn_recursive();
+        }
     }
 }
 
@@ -622,35 +631,35 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..Default::default()
         })
         .with_children(|parent| {
-            // parent
-            //     .spawn_bundle(ButtonBundle {
-            //         style: Style {
-            //             size: Size::new(Val::Px(170.0), Val::Px(65.0)),
-            //             justify_content: JustifyContent::Center,
-            //             align_items: AlignItems::Center,
-            //             position: Rect {
-            //                 top: Val::Px(50.0),
-            //                 ..Default::default()
-            //             },
-            //             ..Default::default()
-            //         },
-            //         color: Color::BLACK.into(),
-            //         ..Default::default()
-            //     })
-            //     .with_children(|parent| {
-            //         parent.spawn_bundle(TextBundle {
-            //             text: Text::with_section(
-            //                 "NEW ROUND",
-            //                 TextStyle {
-            //                     font: font.clone(),
-            //                     font_size: 30.0,
-            //                     color: Color::rgb(0.9, 0.9, 0.9),
-            //                 },
-            //                 Default::default(),
-            //             ),
-            //             ..Default::default()
-            //         });
-            //     });
+            parent
+                .spawn_bundle(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Px(170.0), Val::Px(65.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        position: Rect {
+                            top: Val::Px(50.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    color: Color::BLACK.into(),
+                    ..Default::default()
+                })
+                .with_children(|parent| {
+                    parent.spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "NEW ROUND",
+                            TextStyle {
+                                font: font.clone(),
+                                font_size: 15.0,
+                                color: Color::rgb(0.9, 0.9, 0.9),
+                            },
+                            Default::default(),
+                        ),
+                        ..Default::default()
+                    });
+                });
 
             parent.spawn_bundle(TextBundle {
                 text,
@@ -1178,7 +1187,8 @@ fn execute_reset_request(
         ai_gym_state.action = None;
         ai_gym_state.rewards = Vec::new();
 
-        // app_state.set(AppState::InGame).unwrap();
+        // app_state.pop(AppState::InGame).unwrap();
+        app_state.set(AppState::InGame).unwrap();
     }
 }
 
@@ -1618,27 +1628,25 @@ fn build_game_app() -> App {
         );
 
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
+    } else {
+        // This branch would panic on current version
+        app.add_state(AppState::MainMenu);
+        app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
+        app.add_system_set(
+            SystemSet::on_update(AppState::InGame)
+                // Game Systems
+                .with_system(update_hud)
+                .with_system(control_player_keyboard)
+                .with_system(check_termination),
+        );
+        app.add_system_set(
+            SystemSet::on_enter(AppState::RoundOver)
+                .with_system(spawn_ui_camera)
+                .with_system(round_over),
+        );
+        app.add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system));
+        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
     }
 
     return app;
-
-    // This branch would panic on current version
-    // else {
-    //     app.add_state(AppState::MainMenu);
-    //     app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
-    //     app.add_system_set(
-    //         SystemSet::on_update(AppState::InGame)
-    //             .with_system(update_hud)
-    //             .with_system(check_termination_play),
-    //     );
-    //     app.add_system_set(
-    //         SystemSet::on_enter(AppState::RoundOver)
-    //             .with_system(spawn_ui_camera)
-    //             .with_system(round_over),
-    //     )
-    //     .add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system))
-    //     .add_system_set(
-    //         SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
-    //     )
-    // }
 }
