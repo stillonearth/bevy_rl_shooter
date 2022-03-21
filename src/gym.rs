@@ -401,9 +401,12 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
 
     let state_: &GothamState<T> = GothamState::borrow_from(&state);
 
-    {
+    loop {
         let mut ai_gym_state = state_.inner.lock().unwrap();
-        ai_gym_state.__action_unparsed_string = action;
+        if ai_gym_state.__is_environment_paused {
+            ai_gym_state.__action_unparsed_string = action;
+            break;
+        }
     }
 
     let mut reward = 0.0;

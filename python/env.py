@@ -5,7 +5,6 @@ import requests
 import numpy as np
 
 from PIL import Image, ImageOps
-from io import StringIO
 
 
 API_SCREEN = 'http://127.0.0.1:7878/screen.png'
@@ -27,7 +26,7 @@ class Environment:
         time.sleep(0.1)
         
     def step(self, action):
-        response = requests.post(API_STEP, action, timeout=0.01)       
+        response = requests.post(API_STEP, action, timeout=5)
         return (response.json(), self.visual_observations())
 
     def visual_observations(self):
