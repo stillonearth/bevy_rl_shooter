@@ -390,6 +390,7 @@ pub fn spawn_enemies(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     game_sprites: Res<GameAssets>,
+    wolfenstein_sprites: Res<GameAssets>,
 ) {
     let enemy_count = match DEBUG {
         true => 64,
@@ -417,7 +418,10 @@ pub fn spawn_enemies(
         commands
             .spawn_bundle((transform, GlobalTransform::identity()))
             .with_children(|cell| {
-                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+                let mut mesh = Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7)));
+                let uv = wolfenstein_sprites.guard_standing_animation[0][0].clone();
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+                let mesh = meshes.add(mesh);
 
                 cell.spawn_bundle(PbrBundle {
                     mesh: mesh.clone(),
@@ -1193,7 +1197,7 @@ fn check_termination(
         ai_gym_state.is_terminated = true;
         ai_gym_state.__is_environment_paused = true;
 
-        app_state.set(AppState::RoundOver).unwrap();
+        app_state.set(AppState::RoundOver);
     }
 }
 

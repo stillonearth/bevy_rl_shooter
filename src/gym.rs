@@ -428,7 +428,7 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     return (
         state,
         format!(
-            "{{'reward': {}, 'is_terminated': {}}}",
+            "{{\"reward\": {}, \"is_terminated\": {}}}",
             reward, is_terminated
         ),
     );
