@@ -28,7 +28,9 @@ Environment spawns a http server for programmatic interaction. API is available 
 Following API handles are exposed:
 
 * **[GET]** `http://localhost:7878/screen.png` — A first-person view of the world by the agent
-* **[POST]** `http://localhost:7878/step` *POST BODY*: ACTION *RESPONSE*: ```json {is_terminated: false, reward: 10.0}```
+* **[POST]** `http://localhost:7878/step` — Perform a step and evaluate reward 
+    <br />*POST BODY*: ACTION 
+    <br />*RESPONSE*: ```json {is_terminated: false, reward: 10.0}```
 
 ## Mathematical Models
 
@@ -45,11 +47,12 @@ Currently working
 * [x] Player health
 * [x] Enemy movement
 * [x] Enemy shooting via raycast
+* [x] Gym environment
 
 TODO:
 
 * [ ] Wall textures
-* [ ] Gym environment
+
 * [ ] Enemy AI with neural networks
 
 ## Known Bugs
