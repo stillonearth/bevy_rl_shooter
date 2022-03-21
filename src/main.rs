@@ -231,18 +231,18 @@ fn button_system(
 fn clear_world(
     mut commands: Commands,
     mut walls: Query<Entity, With<Wall>>,
-    mut players: Query<(Entity), With<Player>>,
-    mut interface: Query<(Entity), With<Interface>>,
+    mut players: Query<Entity, With<Player>>,
+    mut interface: Query<Entity, With<Interface>>,
 ) {
-    for (e, _) in walls.iter_mut() {
+    for e in walls.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
 
-    for (e, _) in players.iter_mut() {
+    for e in players.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
 
-    for (e, _) in interface.iter_mut() {
+    for e in interface.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
 }
@@ -1120,6 +1120,7 @@ fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
             visibility: Visibility { is_visible: false },
             ..Default::default()
         })
+        .insert(Interface)
         .with_children(|parent| {
             parent
                 .spawn_bundle(TextBundle {
@@ -1228,6 +1229,7 @@ fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
             visibility: Visibility { is_visible: false },
             ..Default::default()
         })
+        .insert(Interface)
         .with_children(|parent| {
             parent
                 .spawn_bundle(ImageBundle {
@@ -1432,55 +1434,6 @@ fn turnbased_control_system_switch(
     }
 }
 
-fn turnbased_keyboard_control_system(
-    keys: Res<Input<KeyCode>>,
-    player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
-    collision_events: EventReader<CollisionEvent>,
-    event_gun_shot: EventWriter<EventGunShot>,
-    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
-    mut app_state: ResMut<State<AppState>>,
-    mut physics_time: ResMut<PhysicsTime>,
-    player_query: Query<&Player>,
-) {
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
-
-    if keys.get_pressed().len() == 0 {
-        return;
-    }
-
-    for key in keys.get_pressed() {
-        if *key == KeyCode::W {
-            ai_gym_state.action = Some(PlayerActionFlags::FORWARD);
-        } else if *key == KeyCode::A {
-            ai_gym_state.action = Some(PlayerActionFlags::BACKWARD);
-        } else if *key == KeyCode::S {
-            ai_gym_state.action = Some(PlayerActionFlags::LEFT);
-        } else if *key == KeyCode::D {
-            ai_gym_state.action = Some(PlayerActionFlags::RIGHT);
-        } else if *key == KeyCode::Q {
-            ai_gym_state.action = Some(PlayerActionFlags::TURN_LEFT);
-        } else if *key == KeyCode::E {
-            ai_gym_state.action = Some(PlayerActionFlags::TURN_RIGHT);
-        } else if keys.just_pressed(KeyCode::Space) {
-            ai_gym_state.action = Some(PlayerActionFlags::SHOOT);
-        }
-    }
-
-    let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
-    ai_gym_state.rewards.push(player.score as f32);
-
-    control_player(
-        ai_gym_state.action.unwrap(),
-        player_movement_q,
-        collision_events,
-        event_gun_shot,
-    );
-
-    app_state.pop().unwrap();
-    physics_time.resume();
-    ai_gym_state.__is_environment_paused = false;
-}
-
 fn turnbased_text_control_system(
     player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
     collision_events: EventReader<CollisionEvent>,
@@ -1654,11 +1607,7 @@ fn build_game_app() -> App {
                 .with_system(control_player_keyboard)
                 .with_system(check_termination),
         );
-        app.add_system_set(
-            SystemSet::on_enter(AppState::RoundOver)
-                .with_system(spawn_ui_camera)
-                .with_system(round_over),
-        );
+        app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
         app.add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system));
         app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
     }

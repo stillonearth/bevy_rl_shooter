@@ -19,6 +19,17 @@ This project is an attempt to build minimal FPS game with Bevy Game Engine (0.6.
 
 ## Architecture
 
+### Game
+
+### Training Environment
+
+Environment spawns a http server for programmatic interaction. API is available on http://localhost:7878/
+
+Following API handles are exposed:
+
+* **[GET]** `http://localhost:7878/screen.png` — A first-person view of the world by the agent
+* **[POST]** `http://localhost:7878/step` *POST BODY*: ACTION *RESPONSE*: ```json {is_terminated: false, reward: 10.0}```
+
 ## Mathematical Models
 
 ## Results
@@ -34,13 +45,17 @@ Currently working
 * [x] Player health
 * [x] Enemy movement
 * [x] Enemy shooting via raycast
-* [ ] 
 
 TODO:
 
 * [ ] Wall textures
 * [ ] Gym environment
 * [ ] Enemy AI with neural networks
+
+## Known Bugs
+
+* This environment uses unstable bevy version to enable rendering to a membuffer.
+* Environment wouldn't do proper reset. In order to restart the environment during training you need to shut down the process and run it again. This should be resolved with bevy 0.7 release.
 
 ## Acknowledgements
 
