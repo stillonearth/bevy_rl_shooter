@@ -326,7 +326,7 @@ pub fn spawn_player(
         position: (pos.0 as f32, pos.1 as f32),
         rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
         name: "Player 1".to_string(),
-        health: 1000,
+        health: 65535,
         score: 0,
     };
 

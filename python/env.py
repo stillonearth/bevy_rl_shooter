@@ -16,24 +16,18 @@ class Environment:
     def __init__(self, executable_path, size):
         self.executable_path = executable_path
         self.size = size
-        self.__start();
+        self.__start()
         
     def reset(self):
         self.rs_env.kill()
-        self.__start();
+        self.__start()
 
     def __start(self):
         self.rs_env = subprocess.Popen([self.executable_path, "--mode", "train"])
-        time.sleep(0.2)
-        if self.visual_observations().mean() > 200:
-            self.reset()
+        time.sleep(0.1)
         
     def step(self, action):
-        response = requests.post(API_STEP, action)
-        time.sleep(0.08)
-        if response.content == "":
-            return None, None
-       
+        response = requests.post(API_STEP, action, timeout=0.01)       
         return (response.json(), self.visual_observations())
 
     def visual_observations(self):
