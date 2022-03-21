@@ -215,9 +215,9 @@ fn button_system(
     }
 }
 
-fn clear_world(mut commands: Commands, mut q: Query<Entity>) {
-    for q in q.iter_mut() {
-        commands.entity(q).despawn();
+fn clear_world(mut commands: Commands, mut q: Query<(Entity, Without<gym::RenderComponent>)>) {
+    for (e, _) in q.iter_mut() {
+        commands.entity(e).despawn_recursive();
     }
 }
 
@@ -229,15 +229,19 @@ fn spawn_game_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    println!("Spawn game world!");
+
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
     }));
 
+    let white_material_handle = materials.add(Color::WHITE.into());
+
     commands
         .spawn_bundle(PbrBundle {
             mesh: mesh.clone(),
-            material: materials.add(Color::WHITE.into()),
+            material: white_material_handle.clone(),
             ..Default::default()
         })
         .insert(RigidBody::Static)
@@ -260,7 +264,7 @@ fn spawn_game_world(
         commands
             .spawn_bundle(PbrBundle {
                 mesh: meshes.add(Mesh::from(shape::Cube { size: 2.0 })),
-                material: materials.add(Color::WHITE.into()),
+                material: white_material_handle.clone(),
                 transform: Transform::from_translation(Vec3::new(*x as f32, 1.0, *z as f32)),
                 global_transform: GlobalTransform::identity(),
                 ..Default::default()
@@ -355,7 +359,7 @@ pub fn spawn_enemies(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
-    wolfenstein_sprites: Res<GameAssets>,
+    game_sprites: Res<GameAssets>,
 ) {
     let enemy_count = match DEBUG {
         true => 64,
@@ -387,7 +391,7 @@ pub fn spawn_enemies(
 
                 cell.spawn_bundle(PbrBundle {
                     mesh: mesh.clone(),
-                    material: wolfenstein_sprites.guard_billboard_material.clone(),
+                    material: game_sprites.guard_billboard_material.clone(),
                     transform: Transform {
                         translation: Vec3::ZERO,
                         ..Default::default()
@@ -406,7 +410,7 @@ pub fn spawn_enemies(
                 let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
                 cell.spawn_bundle(PbrBundle {
                     mesh: mesh.clone(),
-                    material: wolfenstein_sprites.guard_billboard_material.clone(),
+                    material: game_sprites.guard_billboard_material.clone(),
                     transform: Transform {
                         translation: Vec3::ZERO,
                         ..Default::default()
@@ -590,7 +594,7 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
     let text = Text::with_section(
-        "YOU WIN",
+        "ROUND OVER",
         TextStyle {
             font_size: 75.0,
             font: font.clone(),
@@ -618,35 +622,35 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..Default::default()
         })
         .with_children(|parent| {
-            parent
-                .spawn_bundle(ButtonBundle {
-                    style: Style {
-                        size: Size::new(Val::Px(170.0), Val::Px(65.0)),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        position: Rect {
-                            top: Val::Px(50.0),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    color: Color::BLACK.into(),
-                    ..Default::default()
-                })
-                .with_children(|parent| {
-                    parent.spawn_bundle(TextBundle {
-                        text: Text::with_section(
-                            "NEW ROUND",
-                            TextStyle {
-                                font: font.clone(),
-                                font_size: 30.0,
-                                color: Color::rgb(0.9, 0.9, 0.9),
-                            },
-                            Default::default(),
-                        ),
-                        ..Default::default()
-                    });
-                });
+            // parent
+            //     .spawn_bundle(ButtonBundle {
+            //         style: Style {
+            //             size: Size::new(Val::Px(170.0), Val::Px(65.0)),
+            //             justify_content: JustifyContent::Center,
+            //             align_items: AlignItems::Center,
+            //             position: Rect {
+            //                 top: Val::Px(50.0),
+            //                 ..Default::default()
+            //             },
+            //             ..Default::default()
+            //         },
+            //         color: Color::BLACK.into(),
+            //         ..Default::default()
+            //     })
+            //     .with_children(|parent| {
+            //         parent.spawn_bundle(TextBundle {
+            //             text: Text::with_section(
+            //                 "NEW ROUND",
+            //                 TextStyle {
+            //                     font: font.clone(),
+            //                     font_size: 30.0,
+            //                     color: Color::rgb(0.9, 0.9, 0.9),
+            //                 },
+            //                 Default::default(),
+            //             ),
+            //             ..Default::default()
+            //         });
+            //     });
 
             parent.spawn_bundle(TextBundle {
                 text,
@@ -669,13 +673,13 @@ fn event_gun_shot(
     mut gunshot_event: EventReader<EventGunShot>,
     mut event_damage: EventWriter<EventDamage>,
 
-    mut wolfenstein_sprites: ResMut<GameAssets>,
+    mut game_sprites: ResMut<GameAssets>,
 ) {
     for gunshot_event in gunshot_event.iter() {
         if gunshot_event.from == "Player 1".to_string() {
             for (_, mut ui_image) in gun_sprite_query.iter_mut() {
-                wolfenstein_sprites.gun_index = 1;
-                ui_image.0 = wolfenstein_sprites.gun[wolfenstein_sprites.gun_index as usize]
+                game_sprites.gun_index = 1;
+                ui_image.0 = game_sprites.gun[game_sprites.gun_index as usize]
                     .clone()
                     .into();
             }
@@ -717,17 +721,9 @@ fn event_gun_shot(
 
         // despawn a wall
         if !player_hit {
-            commands.entity(hit_entity).despawn();
+            commands.entity(hit_entity).despawn_recursive();
         }
     }
-}
-
-fn event_new_round(
-    mut commands: Commands,
-    mut player_query: Query<(Entity, &Children, &mut Player, &mut Velocity)>,
-    mut billboard_query: Query<(Entity, &mut EnemyAnimation, &Billboard)>,
-    mut event_damage: EventReader<EventDamage>,
-) {
 }
 
 fn event_damage(
@@ -1151,33 +1147,38 @@ fn update_hud(
     }
 }
 
-fn check_termination_play(
+fn check_termination(
     player_query: Query<&Player>,
     time: Res<Time>,
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
+    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
 ) {
     let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
     if player_1.health == 0 || seconds_left == 0 {
+        let mut ai_gym_state = ai_gym_state.lock().unwrap();
+        ai_gym_state.is_terminated = true;
+        ai_gym_state.__is_environment_paused = true;
+
         app_state.set(AppState::RoundOver).unwrap();
     }
 }
 
-fn check_termination_training(
-    player_query: Query<&Player>,
-    time: Res<Time>,
-    mut round_timer: ResMut<RoundTimer>,
-    mut event_writer_new_round: EventWriter<EventNewRound>,
+fn execute_reset_request(
+    mut app_state: ResMut<State<AppState>>,
+    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
 ) {
-    let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
-    round_timer.0.tick(time.delta());
-    let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    if ai_gym_state.__request_for_reset {
+        ai_gym_state.__request_for_reset = false;
+        ai_gym_state.is_terminated = false;
+        ai_gym_state.action = None;
+        ai_gym_state.rewards = Vec::new();
 
-    if player_1.health == 0 || seconds_left == 0 {
-        event_writer_new_round.send(EventNewRound {});
+        app_state.set(AppState::InGame).unwrap();
     }
 }
 
@@ -1438,11 +1439,6 @@ fn turnbased_keyboard_control_system(
     let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
     ai_gym_state.rewards.push(player.score as f32);
 
-    let mut reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
-    if ai_gym_state.rewards.len() > 1 {
-        reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
-    }
-
     control_player(
         ai_gym_state.action.unwrap(),
         player_movement_q,
@@ -1529,8 +1525,8 @@ fn build_game_app() -> App {
         // Plugins
         .add_plugins(DefaultPlugins)
         .insert_resource(gym::AIGymSettings {
-            width: 256,
-            height: 256,
+            width: 1024,
+            height: 1024,
         })
         .insert_resource(Arc::new(Mutex::new(gym::AIGymState::<PlayerActionFlags> {
             ..Default::default()
@@ -1566,15 +1562,7 @@ fn build_game_app() -> App {
                 .with_system(event_gun_shot)
                 .with_system(event_damage),
         )
-        .add_system_set(
-            SystemSet::on_enter(AppState::RoundOver)
-                .with_system(spawn_ui_camera)
-                .with_system(round_over),
-        )
-        .add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system))
-        .add_system_set(
-            SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
-        )
+        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world))
         // AI -- global due to
         .add_system(bloodthirst_system)
         .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
@@ -1585,10 +1573,13 @@ fn build_game_app() -> App {
 
     if args.mode == "train" {
         app.add_state(AppState::InGame);
+
+        app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(check_termination_training)
+                .with_system(check_termination)
+                .with_system(update_hud)
                 .with_system(turnbased_control_system_switch),
         );
 
@@ -1598,14 +1589,32 @@ fn build_game_app() -> App {
                 .with_system(turnbased_text_control_system),
         );
 
+        app.add_system_set(
+            SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
+        );
+
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     } else if args.mode == "playtest" {
         app.add_state(AppState::InGame);
+
+        app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
+                .with_system(update_hud)
                 .with_system(control_player_keyboard)
-                .with_system(check_termination_training),
+                .with_system(check_termination),
+        );
+
+        app.add_system_set(
+            SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
+        );
+        app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
+        app.add_system_set(
+            SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
+        );
+        app.add_system_set(
+            SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
         );
 
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
@@ -1616,13 +1625,20 @@ fn build_game_app() -> App {
     // This branch would panic on current version
     // else {
     //     app.add_state(AppState::MainMenu);
-
     //     app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
     //     app.add_system_set(
     //         SystemSet::on_update(AppState::InGame)
     //             .with_system(update_hud)
     //             .with_system(check_termination_play),
     //     );
-    //     app.add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world));
+    //     app.add_system_set(
+    //         SystemSet::on_enter(AppState::RoundOver)
+    //             .with_system(spawn_ui_camera)
+    //             .with_system(round_over),
+    //     )
+    //     .add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system))
+    //     .add_system_set(
+    //         SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
+    //     )
     // }
 }

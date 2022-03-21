@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::marker::PhantomData;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -51,14 +52,6 @@ pub trait Action {
     fn derive(self);
 }
 
-use std::marker::PhantomData;
-
-#[derive(Clone)]
-pub enum EnvironmentState {
-    Executing,
-    Paused,
-}
-
 #[derive(Clone, Default)]
 pub struct AIGymState<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> {
     // These parts are made of hack trick internals.
@@ -75,10 +68,14 @@ pub struct AIGymState<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSa
     pub screen: Option<image::RgbaImage>,
     pub rewards: Vec<f32>,
     pub action: Option<T>,
+    pub is_terminated: bool,
 }
 
 #[derive(Component, Default)]
 pub struct FirstPassCamera;
+
+#[derive(Component)]
+pub struct RenderComponent;
 
 #[derive(Default, Clone)]
 pub struct AIGymPlugin<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
@@ -145,11 +142,14 @@ fn extract_first_pass_camera_phases(
     active: Res<ActiveCamera<FirstPassCamera>>,
 ) {
     if let Some(entity) = active.get() {
-        commands.get_or_spawn(entity).insert_bundle((
-            RenderPhase::<Opaque3d>::default(),
-            RenderPhase::<AlphaMask3d>::default(),
-            RenderPhase::<Transparent3d>::default(),
-        ));
+        commands
+            .get_or_spawn(entity)
+            .insert_bundle((
+                RenderPhase::<Opaque3d>::default(),
+                RenderPhase::<AlphaMask3d>::default(),
+                RenderPhase::<Transparent3d>::default(),
+            ))
+            .insert(RenderComponent);
     }
 }
 
@@ -332,15 +332,19 @@ fn setup<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     clear_colors.insert(ai_gym_state.__render_target.clone().unwrap(), Color::WHITE);
 
     // UI viewport for game
-    commands.spawn_bundle(UiCameraBundle::default());
-    commands.spawn_bundle(ImageBundle {
-        style: Style {
-            align_self: AlignSelf::Center,
+    commands
+        .spawn_bundle(UiCameraBundle::default())
+        .insert(RenderComponent);
+    commands
+        .spawn_bundle(ImageBundle {
+            style: Style {
+                align_self: AlignSelf::Center,
+                ..Default::default()
+            },
+            image: image_handle.clone().into(),
             ..Default::default()
-        },
-        image: image_handle.clone().into(),
-        ..Default::default()
-    });
+        })
+        .insert(RenderComponent);
 
     let window = windows.get_primary_mut().unwrap();
     window.set_resolution(ai_gym_settings.width as f32, ai_gym_settings.height as f32);
@@ -403,8 +407,9 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     }
 
     let mut reward = 0.0;
+    let is_terminated;
     loop {
-        let mut ai_gym_state = state_.inner.lock().unwrap();
+        let ai_gym_state = state_.inner.lock().unwrap();
 
         if ai_gym_state.__is_environment_paused {
             if ai_gym_state.rewards.len() > 0 {
@@ -414,22 +419,28 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
                 reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
             }
 
-            println!("{}: {}", ai_gym_state.__action_unparsed_string, reward);
-
-            // ai_gym_state.__action_unparsed_string = "".to_string();
+            is_terminated = ai_gym_state.is_terminated.clone();
 
             break;
         }
     }
 
-    return (state, format!("{}", reward));
+    return (
+        state,
+        format!(
+            "{{'reward': {}, 'is_terminated': {}}}",
+            reward, is_terminated
+        ),
+    );
 }
 
 fn reset<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     state: State,
 ) -> (State, String) {
-    let state_: &GothamState<T> = GothamState::borrow_from(&state);
-    let mut ai_gym_state = state_.inner.lock().unwrap().clone();
-    ai_gym_state.__request_for_reset = true;
+    {
+        let state_: &GothamState<T> = GothamState::borrow_from(&state);
+        let mut ai_gym_state = state_.inner.lock().unwrap();
+        ai_gym_state.__request_for_reset = true;
+    }
     return (state, "ok".to_string());
 }
