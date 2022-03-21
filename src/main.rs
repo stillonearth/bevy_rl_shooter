@@ -125,6 +125,9 @@ enum AppState {
 
 // Main Menu
 
+#[derive(Component)]
+struct Interface;
+
 pub fn main_screen(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -145,7 +148,9 @@ pub fn main_screen(
         },
     );
 
-    commands.spawn_bundle(UiCameraBundle::default());
+    commands
+        .spawn_bundle(UiCameraBundle::default())
+        .insert(Interface);
     // root node
     commands
         .spawn_bundle(NodeBundle {
@@ -162,6 +167,7 @@ pub fn main_screen(
             visibility: Visibility { is_visible: false },
             ..Default::default()
         })
+        .insert(Interface)
         .with_children(|parent| {
             parent
                 .spawn_bundle(ButtonBundle {
@@ -222,15 +228,29 @@ fn button_system(
     }
 }
 
-fn clear_world(mut commands: Commands, mut q: Query<(Entity, Without<gym::RenderComponent>)>) {
-    for (e, render_component) in q.iter_mut() {
-        if render_component {
-            commands.entity(e).despawn_recursive();
-        }
+fn clear_world(
+    mut commands: Commands,
+    mut walls: Query<Entity, With<Wall>>,
+    mut players: Query<(Entity), With<Player>>,
+    mut interface: Query<(Entity), With<Interface>>,
+) {
+    for (e, _) in walls.iter_mut() {
+        commands.entity(e).despawn_recursive();
+    }
+
+    for (e, _) in players.iter_mut() {
+        commands.entity(e).despawn_recursive();
+    }
+
+    for (e, _) in interface.iter_mut() {
+        commands.entity(e).despawn_recursive();
     }
 }
 
 // InGame
+
+#[derive(Component)]
+struct Wall;
 
 fn spawn_game_world(
     mut commands: Commands,
@@ -283,6 +303,7 @@ fn spawn_game_world(
                 half_extends: Vec3::new(1.0, 1.0, 1.0),
                 border_radius: None,
             })
+            .insert(Wall)
             .insert(CollisionLayers::new(Layer::World, Layer::Player))
             .insert(RayCastMesh::<RaycastMarker>::default()); // Make this mesh ray cast-able
     }
@@ -615,7 +636,9 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
     );
 
-    // commands.spawn_bundle(UiCameraBundle::default());
+    commands
+        .spawn_bundle(UiCameraBundle::default())
+        .insert(Interface);
     // root node
     commands
         .spawn_bundle(NodeBundle {
@@ -630,6 +653,7 @@ pub fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
             visibility: Visibility { is_visible: true },
             ..Default::default()
         })
+        .insert(Interface)
         .with_children(|parent| {
             parent
                 .spawn_bundle(ButtonBundle {
@@ -1064,10 +1088,6 @@ fn animate_enemy(
             }
         }
     }
-}
-
-fn spawn_ui_camera(mut commands: Commands) {
-    commands.spawn_bundle(UiCameraBundle::default());
 }
 
 fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
@@ -1546,16 +1566,11 @@ fn build_game_app() -> App {
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
         // State chain
-        .add_system_set(
-            SystemSet::on_enter(AppState::MainMenu)
-                .with_system(spawn_ui_camera)
-                .with_system(main_screen),
-        )
+        .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(main_screen))
         .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
-                .with_system(spawn_ui_camera)
                 .with_system(spawn_game_world)
                 .with_system(spawn_player)
                 .with_system(spawn_enemies)
