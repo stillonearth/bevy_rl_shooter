@@ -32,7 +32,7 @@ class QNetwork(nn.Module):
 
 class DuelingQNetwork(nn.Module):
     
-    def __init__(self, state_size, action_size, seed, fc1_units=128, fc2_units=128, fc_a_units=64, fc_v_units=64):
+    def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=256, fc_a_units=128, fc_v_units=128):
         super(DuelingQNetwork, self).__init__()
         self.seed = torch.manual_seed(seed)
 

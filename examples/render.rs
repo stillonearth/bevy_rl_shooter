@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 
-use bevystein::gym::*;
+use bevy_rl::*;
 
 fn main() {
     let mut app = App::new();
@@ -14,7 +14,6 @@ fn main() {
             height: 512,
         })
         .insert_resource(Arc::new(Mutex::new(AIGymState::<CubeAction> {
-            actions: CubeAction {},
             ..Default::default()
         })))
         .add_plugin(AIGymPlugin::<CubeAction>::default());

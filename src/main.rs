@@ -6,6 +6,10 @@ use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
 use bevy::utils::Instant;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
+use bevy_rl::state::AIGymState;
+use bevy_rl::AIGymCamera;
+use bevy_rl::AIGymPlugin;
+use bevy_rl::AIGymSettings;
 use big_brain::prelude::*;
 use heron::*;
 
@@ -13,8 +17,8 @@ use bitflags::bitflags;
 use clap::Parser;
 use names::Generator;
 use serde::{Deserialize, Serialize};
+use serde_json;
 
-mod gym;
 mod map;
 
 const DEBUG: bool = false;
@@ -41,7 +45,7 @@ enum Layer {
 // ----------
 
 #[derive(Component, Clone)]
-struct Player {
+pub struct Player {
     position: (f32, f32),
     rotation: f32,
     name: String,
@@ -131,7 +135,7 @@ struct Interface;
 pub fn main_screen(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    gym_settings: Res<gym::AIGymSettings>,
+    gym_settings: Res<AIGymSettings>,
 ) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
@@ -231,14 +235,14 @@ fn button_system(
 fn clear_world(
     mut commands: Commands,
     mut walls: Query<Entity, With<Wall>>,
-    mut players: Query<Entity, With<Player>>,
+    mut players: Query<(Entity, &Player), Without<PlayerPerspective>>,
     mut interface: Query<Entity, With<Interface>>,
 ) {
     for e in walls.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
 
-    for e in players.iter_mut() {
+    for (e, _) in players.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
 
@@ -258,8 +262,6 @@ fn spawn_game_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    println!("Spawn game world!");
-
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
@@ -309,15 +311,16 @@ fn spawn_game_world(
     }
 }
 
-pub fn init_round(mut commands: Commands) {
+fn init_round(mut commands: Commands) {
     commands.insert_resource(RoundTimer(Timer::from_seconds(300.0, false)));
 }
 
-pub fn spawn_player(
+fn spawn_player(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_state: Res<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    mut user_player: Query<(Entity, &Player), With<PlayerPerspective>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
@@ -326,63 +329,73 @@ pub fn spawn_player(
         position: (pos.0 as f32, pos.1 as f32),
         rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
         name: "Player 1".to_string(),
-        health: 65535,
+        health: 1000,
         score: 0,
     };
 
-    commands
-        .spawn_bundle((
-            Transform {
-                translation: Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32),
-                rotation: Quat::from_rotation_y(player.rotation),
-                ..Default::default()
-            },
-            GlobalTransform::identity(),
-        ))
-        .with_children(|cell| {
-            cell.spawn_bundle(PointLightBundle {
-                point_light: PointLight {
-                    intensity: 500.0,
-                    shadows_enabled: false,
+    let result = user_player.iter().last();
+
+    if !result.is_none() {
+        let entity = result.unwrap().0;
+        let mut player = result.unwrap().1.clone();
+        player.health = 1000;
+
+        commands.entity(entity).insert(player);
+    } else {
+        commands
+            .spawn_bundle((
+                Transform {
+                    translation: Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32),
+                    rotation: Quat::from_rotation_y(player.rotation),
                     ..Default::default()
                 },
-                ..Default::default()
-            });
-
-            // Camera
-            cell.spawn_bundle(PerspectiveCameraBundle::<gym::FirstPassCamera> {
-                camera: Camera {
-                    target: ai_gym_state.__render_target.clone().unwrap(),
-                    ..default()
-                },
-                ..PerspectiveCameraBundle::new()
-            })
-            .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-            cell.spawn_bundle(PbrBundle {
-                mesh: mesh.clone(),
-                transform: Transform {
-                    rotation: Quat::from_rotation_y(std::f32::consts::PI),
+                GlobalTransform::identity(),
+            ))
+            .with_children(|cell| {
+                cell.spawn_bundle(PointLightBundle {
+                    point_light: PointLight {
+                        intensity: 500.0,
+                        shadows_enabled: false,
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                visibility: Visibility { is_visible: true },
+                });
+
+                // Camera
+                cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
+                    camera: Camera {
+                        target: ai_gym_state.__render_target.clone().unwrap(),
+                        ..default()
+                    },
+                    ..PerspectiveCameraBundle::new()
+                })
+                .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
+
+                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+                cell.spawn_bundle(PbrBundle {
+                    mesh: mesh.clone(),
+                    transform: Transform {
+                        rotation: Quat::from_rotation_y(std::f32::consts::PI),
+                        ..Default::default()
+                    },
+                    visibility: Visibility { is_visible: true },
+                    ..Default::default()
+                })
+                .insert(RayCastMesh::<RaycastMarker>::default());
+            })
+            .insert(CollisionShape::Sphere { radius: 1.0 })
+            .insert(PlayerPerspective)
+            .insert(Velocity::from_linear(Vec3::ZERO))
+            .insert(RigidBody::Dynamic)
+            .insert(PhysicMaterial {
+                density: 200.0,
                 ..Default::default()
             })
-            .insert(RayCastMesh::<RaycastMarker>::default());
-        })
-        .insert(CollisionShape::Sphere { radius: 1.0 })
-        .insert(PlayerPerspective)
-        .insert(Velocity::from_linear(Vec3::ZERO))
-        .insert(RigidBody::Dynamic)
-        .insert(PhysicMaterial {
-            density: 200.0,
-            ..Default::default()
-        })
-        .insert(CollisionLayers::new(Layer::Player, Layer::World))
-        .insert(RotationConstraints::lock())
-        .insert(player)
-        .insert(BloodThirst { enemies_near: 0 });
+            .insert(CollisionLayers::new(Layer::Player, Layer::World))
+            .insert(RotationConstraints::lock())
+            .insert(player)
+            .insert(BloodThirst { enemies_near: 0 });
+    }
 }
 
 pub fn spawn_enemies(
@@ -740,7 +753,6 @@ fn event_gun_shot(
         let hit_entity = r.unwrap().0;
 
         let mut player_hit = false;
-        // println!("{:?}", r.1.);
         for (_, children, enemy) in player_query.iter() {
             let other_entity = children.iter().find(|c| c.id() == hit_entity.id());
             if other_entity.is_none() {
@@ -992,7 +1004,8 @@ fn animate_enemy(
     )>,
     parent_query: Query<(&Player, &GlobalTransform)>,
 ) {
-    let player_transform = q.q1().iter().last().unwrap();
+    let q1 = q.q1();
+    let player_transform = q1.iter().last().unwrap();
     let player_position = player_transform.translation;
     let player_fwd = player_transform.forward().normalize();
 
@@ -1186,7 +1199,7 @@ fn check_termination(
     time: Res<Time>,
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
-    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
     round_timer.0.tick(time.delta());
@@ -1203,7 +1216,7 @@ fn check_termination(
 
 fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
     if ai_gym_state.__request_for_reset {
@@ -1426,7 +1439,7 @@ fn turnbased_control_system_switch(
     mut app_state: ResMut<State<AppState>>,
     time: Res<Time>,
     mut timer: ResMut<DelayedControlTimer>,
-    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
     mut physics_time: ResMut<PhysicsTime>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
@@ -1442,7 +1455,7 @@ fn turnbased_text_control_system(
     player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
-    ai_gym_state: ResMut<Arc<Mutex<gym::AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
     mut app_state: ResMut<State<AppState>>,
     mut physics_time: ResMut<PhysicsTime>,
     player_query: Query<&Player>,
@@ -1511,14 +1524,14 @@ fn build_game_app() -> App {
         .add_event::<EventNewRound>()
         // Plugins
         .add_plugins(DefaultPlugins)
-        .insert_resource(gym::AIGymSettings {
-            width: 1024,
-            height: 1024,
+        .insert_resource(AIGymSettings {
+            width: 512,
+            height: 512,
         })
-        .insert_resource(Arc::new(Mutex::new(gym::AIGymState::<PlayerActionFlags> {
+        .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags> {
             ..Default::default()
         })))
-        .add_plugin(gym::AIGymPlugin::<PlayerActionFlags>::default())
+        .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         .add_plugin(BigBrainPlugin)
@@ -1528,9 +1541,9 @@ fn build_game_app() -> App {
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
-                .with_system(spawn_game_world)
-                .with_system(spawn_player)
-                .with_system(spawn_enemies)
+                .with_system(spawn_game_world.after("setup_rendering"))
+                .with_system(spawn_player.after("setup_rendering"))
+                .with_system(spawn_enemies.after("setup_rendering"))
                 .with_system(draw_gun)
                 .with_system(init_round),
         )
@@ -1578,7 +1591,6 @@ fn build_game_app() -> App {
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     } else if args.mode == "playtest" {
         app.add_state(AppState::InGame);
-
         app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
@@ -1588,16 +1600,12 @@ fn build_game_app() -> App {
                 .with_system(check_termination),
         );
 
-        app.add_system_set(
-            SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
-        );
+        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
         app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
         app.add_system_set(
             SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
         );
-        app.add_system_set(
-            SystemSet::on_exit(AppState::RoundOver).with_system(clear_world.exclusive_system()),
-        );
+        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
 
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     } else {
