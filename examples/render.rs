@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 
+use crate::state::AIGymState;
 use bevy_rl::*;
 
 fn main() {
@@ -62,7 +63,7 @@ fn setup(
         ..default()
     });
 
-    commands.spawn_bundle(PerspectiveCameraBundle::<FirstPassCamera> {
+    commands.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
         camera: Camera {
             target: ai_gym_state.__render_target.clone().unwrap(),
             ..default()

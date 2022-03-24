@@ -1,5 +1,3 @@
-use rand::thread_rng;
-use rand::{seq::SliceRandom, Rng};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +13,10 @@ use heron::*;
 
 use bitflags::bitflags;
 use clap::Parser;
+use crossbeam_channel::*;
 use names::Generator;
+use rand::thread_rng;
+use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -120,6 +121,7 @@ enum AppState {
     MainMenu,
     InGame,
     Control,
+    Reset,
     RoundOver,
 }
 
@@ -312,7 +314,7 @@ fn spawn_game_world(
 }
 
 fn init_round(mut commands: Commands) {
-    commands.insert_resource(RoundTimer(Timer::from_seconds(300.0, false)));
+    commands.insert_resource(RoundTimer(Timer::from_seconds(60.0, false)));
 }
 
 fn spawn_player(
@@ -320,7 +322,7 @@ fn spawn_player(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
-    mut user_player: Query<(Entity, &Player), With<PlayerPerspective>>,
+    mut user_player: Query<(Entity, &mut Transform, &mut Player), With<PlayerPerspective>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
@@ -333,14 +335,20 @@ fn spawn_player(
         score: 0,
     };
 
-    let result = user_player.iter().last();
+    let result = user_player.iter_mut().last();
 
     if !result.is_none() {
-        let entity = result.unwrap().0;
-        let mut player = result.unwrap().1.clone();
-        player.health = 1000;
+        let (_, mut transform, mut player) = result.unwrap();
 
-        commands.entity(entity).insert(player);
+        player.health = 1000;
+        player.position = (pos.0 as f32, pos.1 as f32);
+        player.rotation = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
+
+        transform.translation = Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32);
+        transform.rotation = Quat::from_rotation_y(player.rotation);
+
+        // commands.entity(entity).insert(player);
+        // commands.entity(entity).insert(transform);
     } else {
         commands
             .spawn_bundle((
@@ -735,16 +743,18 @@ fn event_gun_shot(
             }
         }
 
-        let (_, raycast_source) = shooting_query
-            .iter()
-            .find(|(p, _)| {
-                !player_query
-                    .iter()
-                    .find(|(e, _, _p)| e.id() == p.id() && _p.name == gunshot_event.from)
-                    .is_none()
-            })
-            .unwrap();
+        let result = shooting_query.iter().find(|(p, _)| {
+            !player_query
+                .iter()
+                .find(|(e, _, _p)| e.id() == p.id() && _p.name == gunshot_event.from)
+                .is_none()
+        });
 
+        if result.is_none() {
+            return;
+        }
+
+        let (_, raycast_source) = result.unwrap();
         let r = raycast_source.intersect_top();
         if r.is_none() {
             continue;
@@ -770,7 +780,7 @@ fn event_gun_shot(
 
         // despawn a wall
         if !player_hit {
-            commands.entity(hit_entity).despawn_recursive();
+            commands.entity(hit_entity).despawn();
         }
     }
 }
@@ -1208,26 +1218,41 @@ fn check_termination(
     if player_1.health == 0 || seconds_left == 0 {
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
         ai_gym_state.is_terminated = true;
-        ai_gym_state.__is_environment_paused = true;
 
         app_state.set(AppState::RoundOver);
     }
+}
+
+fn restart_round(
+    mut app_state: ResMut<State<AppState>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+) {
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    ai_gym_state.is_terminated = false;
+    ai_gym_state.rewards = Vec::new();
+
+    app_state.set(AppState::InGame).unwrap();
 }
 
 fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
-    if ai_gym_state.__request_for_reset {
-        ai_gym_state.__request_for_reset = false;
-        ai_gym_state.is_terminated = false;
-        ai_gym_state.action = None;
-        ai_gym_state.rewards = Vec::new();
-
-        // app_state.pop(AppState::InGame).unwrap();
-        app_state.set(AppState::InGame).unwrap();
+    let reset_channel_rx: Receiver<bool>;
+    let result_reset_tx: Sender<bool>;
+    {
+        let ai_gym_state = ai_gym_state.lock().unwrap();
+        reset_channel_rx = ai_gym_state.__reset_channel_rx.clone();
+        result_reset_tx = ai_gym_state.__result_reset_channel_tx.clone();
     }
+
+    if reset_channel_rx.is_empty() {
+        return;
+    }
+
+    reset_channel_rx.recv().unwrap();
+    app_state.set(AppState::Reset);
+    result_reset_tx.send(true).unwrap();
 }
 
 fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
@@ -1424,7 +1449,11 @@ pub fn bloodthirsty_scorer_system(
 ) {
     for (Actor(actor), mut score) in query.iter_mut() {
         if let Ok(thirst) = thirsts.get(*actor) {
-            score.set((thirst.enemies_near as f32) / 100.);
+            let mut s = (thirst.enemies_near as f32) / 100.;
+            if s > 1.0 {
+                s = 1.0;
+            }
+            score.set(s);
         }
     }
 }
@@ -1443,11 +1472,13 @@ fn turnbased_control_system_switch(
     mut physics_time: ResMut<PhysicsTime>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        let mut ai_gym_state = ai_gym_state.lock().unwrap();
-        ai_gym_state.__is_environment_paused = true;
-
-        app_state.push(AppState::Control).unwrap();
+        app_state.push(AppState::Control);
         physics_time.pause();
+
+        let ai_gym_state = ai_gym_state.lock().unwrap();
+        let result_tx = ai_gym_state.__result_channel_tx.clone();
+
+        result_tx.send(true).unwrap();
     }
 }
 
@@ -1460,13 +1491,26 @@ fn turnbased_text_control_system(
     mut physics_time: ResMut<PhysicsTime>,
     player_query: Query<&Player>,
 ) {
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    let step_rx: Receiver<String>;
+    let result_tx: Sender<bool>;
+    {
+        let ai_gym_state = ai_gym_state.lock().unwrap();
+        step_rx = ai_gym_state.__step_channel_rx.clone();
+        result_tx = ai_gym_state.__result_channel_tx.clone();
+    }
 
-    if ai_gym_state.__action_unparsed_string == "" {
+    if step_rx.is_empty() {
         return;
     }
 
-    ai_gym_state.action = match ai_gym_state.__action_unparsed_string.as_str() {
+    let unparsed_action = step_rx.recv().unwrap();
+
+    if unparsed_action == "" {
+        result_tx.send(false).unwrap();
+        return;
+    }
+
+    let action = match unparsed_action.as_str() {
         "FORWARD" => Some(PlayerActionFlags::FORWARD),
         "BACKWARD" => Some(PlayerActionFlags::BACKWARD),
         "LEFT" => Some(PlayerActionFlags::LEFT),
@@ -1477,17 +1521,19 @@ fn turnbased_text_control_system(
         _ => None,
     };
 
-    ai_gym_state.__action_unparsed_string = "".to_string();
-
-    if ai_gym_state.action.is_none() {
+    if action.is_none() {
+        result_tx.send(false).unwrap();
         return;
     }
 
     let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
-    ai_gym_state.rewards.push(player.score as f32);
+    {
+        let mut ai_gym_state = ai_gym_state.lock().unwrap();
+        ai_gym_state.rewards.push(player.score as f32);
+    }
 
     control_player(
-        ai_gym_state.action.unwrap(),
+        action.unwrap(),
         player_movement_q,
         collision_events,
         event_gun_shot,
@@ -1495,8 +1541,6 @@ fn turnbased_text_control_system(
 
     app_state.pop().unwrap();
     physics_time.resume();
-    ai_gym_state.__is_environment_paused = false;
-    ai_gym_state.action = None;
 }
 
 // -----------
@@ -1525,8 +1569,8 @@ fn build_game_app() -> App {
         // Plugins
         .add_plugins(DefaultPlugins)
         .insert_resource(AIGymSettings {
-            width: 512,
-            height: 512,
+            width: 768,
+            height: 768,
         })
         .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags> {
             ..Default::default()
@@ -1541,9 +1585,9 @@ fn build_game_app() -> App {
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
-                .with_system(spawn_game_world.after("setup_rendering"))
-                .with_system(spawn_player.after("setup_rendering"))
-                .with_system(spawn_enemies.after("setup_rendering"))
+                .with_system(spawn_game_world)
+                .with_system(spawn_player)
+                .with_system(spawn_enemies)
                 .with_system(draw_gun)
                 .with_system(init_round),
         )
@@ -1557,7 +1601,11 @@ fn build_game_app() -> App {
                 .with_system(event_gun_shot)
                 .with_system(event_damage),
         )
-        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(clear_world))
+        .add_system_set(
+            SystemSet::on_enter(AppState::Reset)
+                .with_system(restart_round)
+                .with_system(clear_world),
+        )
         // AI -- global due to
         .add_system(bloodthirst_system)
         .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
@@ -1573,15 +1621,16 @@ fn build_game_app() -> App {
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(check_termination)
                 .with_system(update_hud)
+                .with_system(check_termination)
                 .with_system(turnbased_control_system_switch),
         );
 
         app.add_system_set(
             SystemSet::on_update(AppState::Control)
                 // Game Systems
-                .with_system(turnbased_text_control_system),
+                .with_system(turnbased_text_control_system)
+                .with_system(execute_reset_request),
         );
 
         app.add_system_set(

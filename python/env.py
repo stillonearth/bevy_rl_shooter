@@ -9,24 +9,20 @@ from PIL import Image, ImageOps
 
 API_SCREEN = 'http://127.0.0.1:7878/screen.png'
 API_STEP = 'http://127.0.0.1:7878/step'
+API_RESET = 'http://127.0.0.1:7878/reset'
 
 class Environment:
 
     def __init__(self, executable_path, size):
         self.executable_path = executable_path
         self.size = size
-        self.__start()
+        # time.sleep(5)
         
     def reset(self):
-        self.rs_env.kill()
-        self.__start()
-
-    def __start(self):
-        self.rs_env = subprocess.Popen([self.executable_path, "--mode", "train"])
-        time.sleep(0.1)
+        requests.post(API_RESET)
         
     def step(self, action):
-        response = requests.post(API_STEP, action, timeout=5)
+        response = requests.post(API_STEP, action)
         return (response.json(), self.visual_observations())
 
     def visual_observations(self):

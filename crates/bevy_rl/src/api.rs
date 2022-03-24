@@ -1,3 +1,5 @@
+use crossbeam_channel::*;
+
 use gotham::helpers::http::response::create_response;
 use gotham::middleware::state::StateMiddleware;
 use gotham::pipeline::{single_middleware, single_pipeline};
@@ -11,6 +13,7 @@ use futures::executor;
 use image;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::state;
 
@@ -42,19 +45,21 @@ pub(crate) fn router<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSaf
 fn screen<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     state: State,
 ) -> (State, Response<Body>) {
-    let state_: &GothamState<T> = GothamState::borrow_from(&state);
-    let state__ = state_.inner.lock().unwrap().clone();
-    let image = state__.screen.clone().unwrap();
-
     let mut bytes: Vec<u8> = Vec::new();
-    image
-        .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
-        .unwrap();
+    {
+        let state_: &GothamState<T> = GothamState::borrow_from(&state);
+        let state__ = state_.inner.lock().unwrap();
+        let image = state__.screen.clone().unwrap();
 
+        image
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)
+            .unwrap();
+    }
     let response = create_response::<Vec<u8>>(&state, StatusCode::OK, mime::TEXT_PLAIN, bytes);
 
     return (state, response);
 }
+
 fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     mut state: State,
 ) -> (State, String) {
@@ -63,32 +68,47 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     let action = String::from_utf8(valid_body.to_vec()).unwrap();
 
     let state_: &GothamState<T> = GothamState::borrow_from(&state);
+    let step_tx: Sender<String>;
+    let result_rx: Receiver<bool>;
 
-    loop {
-        let mut ai_gym_state = state_.inner.lock().unwrap();
-        if ai_gym_state.__is_environment_paused {
-            ai_gym_state.__action_unparsed_string = action;
-            break;
-        }
+    let is_terminated: bool;
+    {
+        let ai_gym_state = state_.inner.lock().unwrap();
+        is_terminated = ai_gym_state.is_terminated;
+        step_tx = ai_gym_state.__step_channel_tx.clone();
+        result_rx = ai_gym_state.__result_channel_rx.clone();
+    }
+
+    if is_terminated {
+        return (
+            state,
+            format!("{{\"reward\": {}, \"is_terminated\": {}}}", 0, true),
+        );
+    }
+
+    step_tx.send(action).unwrap();
+    let result = result_rx.recv_timeout(Duration::from_secs(1));
+
+    if result.is_err() {
+        return (
+            state,
+            format!("{{\"reward\": {}, \"is_terminated\": {}}}", 0.0, true),
+        );
     }
 
     let mut reward = 0.0;
     let is_terminated;
-    loop {
+    {
         let ai_gym_state = state_.inner.lock().unwrap();
 
-        if ai_gym_state.__is_environment_paused {
-            if ai_gym_state.rewards.len() > 0 {
-                reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
-            }
-            if ai_gym_state.rewards.len() > 1 {
-                reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
-            }
-
-            is_terminated = ai_gym_state.is_terminated.clone();
-
-            break;
+        if ai_gym_state.rewards.len() > 0 {
+            reward = ai_gym_state.rewards[ai_gym_state.rewards.len() - 1];
         }
+        if ai_gym_state.rewards.len() > 1 {
+            reward -= ai_gym_state.rewards[ai_gym_state.rewards.len() - 2];
+        }
+
+        is_terminated = ai_gym_state.is_terminated.clone();
     }
 
     return (
@@ -103,10 +123,18 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
 fn reset<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     state: State,
 ) -> (State, String) {
+    let reset_channel_tx: Sender<bool>;
+    let result_rx: Receiver<bool>;
+
     {
         let state_: &GothamState<T> = GothamState::borrow_from(&state);
-        let mut ai_gym_state = state_.inner.lock().unwrap();
-        ai_gym_state.__request_for_reset = true;
+        let ai_gym_state = state_.inner.lock().unwrap();
+        reset_channel_tx = ai_gym_state.__reset_channel_tx.clone();
+        result_rx = ai_gym_state.__result_channel_rx.clone();
     }
+
+    reset_channel_tx.send(true).unwrap();
+    result_rx.recv().unwrap();
+
     return (state, "ok".to_string());
 }
