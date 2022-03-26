@@ -95,15 +95,6 @@ impl<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> Plugin for AI
         graph
             .add_node_edge(node::CLEAR_PASS_DRIVER, FIRST_PASS_DRIVER)
             .unwrap();
-
-        thread::spawn(move || {
-            gotham::start(
-                "127.0.0.1:7878",
-                api::router::<T>(api::GothamState {
-                    inner: ai_gym_state,
-                }),
-            )
-        });
     }
 }
 
@@ -299,12 +290,24 @@ fn setup<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
 
     let image_handle = images.add(image);
 
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    let ai_gym_state_1 = ai_gym_state.into_inner().clone();
+    let ai_gym_state_2 = ai_gym_state_1.clone();
 
-    ai_gym_state.__render_target = Some(RenderTarget::Image(image_handle.clone()));
-    ai_gym_state.__render_image_handle = Some(image_handle.clone());
+    let mut ai_gym_state_ = ai_gym_state_1.lock().unwrap();
 
-    clear_colors.insert(ai_gym_state.__render_target.clone().unwrap(), Color::WHITE);
+    ai_gym_state_.__render_target = Some(RenderTarget::Image(image_handle.clone()));
+    ai_gym_state_.__render_image_handle = Some(image_handle.clone());
+
+    thread::spawn(move || {
+        gotham::start(
+            "127.0.0.1:7878",
+            api::router::<T>(api::GothamState {
+                inner: ai_gym_state_2,
+            }),
+        )
+    });
+
+    clear_colors.insert(ai_gym_state_.__render_target.clone().unwrap(), Color::WHITE);
 
     // UI viewport for game
     commands

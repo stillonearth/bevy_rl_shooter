@@ -87,14 +87,7 @@ fn step<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
     }
 
     step_tx.send(action).unwrap();
-    let result = result_rx.recv_timeout(Duration::from_secs(1));
-
-    if result.is_err() {
-        return (
-            state,
-            format!("{{\"reward\": {}, \"is_terminated\": {}}}", 0.0, true),
-        );
-    }
+    result_rx.recv().unwrap();
 
     let mut reward = 0.0;
     let is_terminated;
@@ -130,7 +123,7 @@ fn reset<T: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe>(
         let state_: &GothamState<T> = GothamState::borrow_from(&state);
         let ai_gym_state = state_.inner.lock().unwrap();
         reset_channel_tx = ai_gym_state.__reset_channel_tx.clone();
-        result_rx = ai_gym_state.__result_channel_rx.clone();
+        result_rx = ai_gym_state.__result_reset_rx.clone();
     }
 
     reset_channel_tx.send(true).unwrap();

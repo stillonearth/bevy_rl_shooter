@@ -3,6 +3,7 @@ use image;
 use bevy::{prelude::*, render::camera::RenderTarget};
 use crossbeam_channel::*;
 
+#[derive(Clone)]
 pub struct AIGymState<A: 'static + Send + Sync + Clone + std::panic::RefUnwindSafe> {
     // These parts are made of hack trick internals.
     pub __render_target: Option<RenderTarget>, // render target for camera -- window on in our case texture

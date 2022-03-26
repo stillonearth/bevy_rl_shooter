@@ -1,5 +1,6 @@
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::utils::Instant;
@@ -335,10 +336,12 @@ fn spawn_player(
         score: 0,
     };
 
+    println!("users {}", user_player.iter().count());
+
     let result = user_player.iter_mut().last();
 
     if !result.is_none() {
-        let (_, mut transform, mut player) = result.unwrap();
+        let (entity, mut transform, mut player) = result.unwrap();
 
         player.health = 1000;
         player.position = (pos.0 as f32, pos.1 as f32);
@@ -347,8 +350,19 @@ fn spawn_player(
         transform.translation = Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32);
         transform.rotation = Quat::from_rotation_y(player.rotation);
 
-        // commands.entity(entity).insert(player);
-        // commands.entity(entity).insert(transform);
+        commands
+            .entity(entity)
+            .insert(player.clone())
+            .insert(*transform)
+            .with_children(|cell| {
+                cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
+                    camera: Camera {
+                        target: ai_gym_state.__render_target.clone().unwrap(),
+                        ..default()
+                    },
+                    ..PerspectiveCameraBundle::new()
+                });
+            });
     } else {
         commands
             .spawn_bundle((
@@ -727,6 +741,7 @@ fn event_gun_shot(
     mut gun_sprite_query: Query<(&Weapon, &mut UiImage)>,
     shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
     player_query: Query<(Entity, &Children, &Player)>,
+    wall_query: Query<(Entity, &Wall)>,
 
     mut gunshot_event: EventReader<EventGunShot>,
     mut event_damage: EventWriter<EventDamage>,
@@ -780,7 +795,10 @@ fn event_gun_shot(
 
         // despawn a wall
         if !player_hit {
-            commands.entity(hit_entity).despawn();
+            let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
+            if wall_entity.is_some() {
+                commands.entity(hit_entity).despawn_recursive();
+            }
         }
     }
 }
@@ -1215,9 +1233,13 @@ fn check_termination(
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
-    if player_1.health == 0 || seconds_left == 0 {
+    if player_1.health == 0 || seconds_left <= 0 {
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
         ai_gym_state.is_terminated = true;
+
+        if ai_gym_state.__result_channel_rx.is_empty() {
+            ai_gym_state.__result_channel_tx.send(true).unwrap();
+        }
 
         app_state.set(AppState::RoundOver);
     }
@@ -1232,6 +1254,8 @@ fn restart_round(
     ai_gym_state.rewards = Vec::new();
 
     app_state.set(AppState::InGame).unwrap();
+
+    ai_gym_state.__result_reset_channel_tx.send(true).unwrap();
 }
 
 fn execute_reset_request(
@@ -1239,11 +1263,9 @@ fn execute_reset_request(
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     let reset_channel_rx: Receiver<bool>;
-    let result_reset_tx: Sender<bool>;
     {
         let ai_gym_state = ai_gym_state.lock().unwrap();
         reset_channel_rx = ai_gym_state.__reset_channel_rx.clone();
-        result_reset_tx = ai_gym_state.__result_reset_channel_tx.clone();
     }
 
     if reset_channel_rx.is_empty() {
@@ -1252,7 +1274,6 @@ fn execute_reset_request(
 
     reset_channel_rx.recv().unwrap();
     app_state.set(AppState::Reset);
-    result_reset_tx.send(true).unwrap();
 }
 
 fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
@@ -1476,9 +1497,10 @@ fn turnbased_control_system_switch(
         physics_time.pause();
 
         let ai_gym_state = ai_gym_state.lock().unwrap();
-        let result_tx = ai_gym_state.__result_channel_tx.clone();
 
-        result_tx.send(true).unwrap();
+        if ai_gym_state.__result_channel_rx.is_empty() {
+            ai_gym_state.__result_channel_tx.send(true).unwrap();
+        }
     }
 }
 
@@ -1503,7 +1525,11 @@ fn turnbased_text_control_system(
         return;
     }
 
-    let unparsed_action = step_rx.recv().unwrap();
+    if step_rx.is_empty() {
+        return;
+    }
+
+    let unparsed_action = step_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
     if unparsed_action == "" {
         result_tx.send(false).unwrap();
