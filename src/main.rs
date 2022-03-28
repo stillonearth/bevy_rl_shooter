@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use bevy::utils::Instant;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
@@ -240,7 +241,18 @@ fn clear_world(
     mut walls: Query<Entity, With<Wall>>,
     mut players: Query<(Entity, &Player), Without<PlayerPerspective>>,
     mut interface: Query<Entity, With<Interface>>,
+    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
+    let ai_gym_state = ai_gym_state.lock().unwrap();
+
+    // commands.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
+    //     camera: Camera {
+    //         target: ai_gym_state.__render_target.clone().unwrap(),
+    //         ..default()
+    //     },
+    //     ..PerspectiveCameraBundle::new()
+    // });
+
     for e in walls.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
@@ -323,8 +335,12 @@ fn spawn_player(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
-    mut user_player: Query<(Entity, &mut Transform, &mut Player), With<PlayerPerspective>>,
+    existing_players: Query<Entity, With<PlayerPerspective>>,
 ) {
+    if existing_players.iter().count() == 1 {
+        return;
+    }
+
     let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
@@ -332,80 +348,60 @@ fn spawn_player(
         position: (pos.0 as f32, pos.1 as f32),
         rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
         name: "Player 1".to_string(),
-        health: 1000,
+        health: 100,
         score: 0,
     };
 
-    println!("users {}", user_player.iter().count());
-
-    let result = user_player.iter_mut().last();
-
-    if !result.is_none() {
-        let (entity, mut transform, mut player) = result.unwrap();
-
-        player.health = 1000;
-        player.position = (pos.0 as f32, pos.1 as f32);
-        player.rotation = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
-
-        transform.translation = Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32);
-        transform.rotation = Quat::from_rotation_y(player.rotation);
-
-        commands
-            .entity(entity)
-            .insert(player.clone())
-            .insert(*transform)
-            .with_children(|cell| {
-                cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
-                    camera: Camera {
-                        target: ai_gym_state.__render_target.clone().unwrap(),
-                        ..default()
-                    },
-                    ..PerspectiveCameraBundle::new()
-                });
-            });
+    let mut ec: EntityCommands;
+    if existing_players.iter().count() == 0 {
+        ec = commands.spawn_bundle(());
     } else {
-        commands
-            .spawn_bundle((
-                Transform {
-                    translation: Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32),
-                    rotation: Quat::from_rotation_y(player.rotation),
+        let e = existing_players.iter().last().unwrap();
+        ec = commands.entity(e);
+    }
+
+    ec.insert(Transform {
+        translation: Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32),
+        rotation: Quat::from_rotation_y(player.rotation),
+        ..Default::default()
+    });
+    ec.insert(GlobalTransform::identity());
+
+    if existing_players.iter().count() == 0 {
+        ec.with_children(|cell| {
+            cell.spawn_bundle(PointLightBundle {
+                point_light: PointLight {
+                    intensity: 500.0,
+                    shadows_enabled: false,
                     ..Default::default()
                 },
-                GlobalTransform::identity(),
-            ))
-            .with_children(|cell| {
-                cell.spawn_bundle(PointLightBundle {
-                    point_light: PointLight {
-                        intensity: 500.0,
-                        shadows_enabled: false,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                });
+                ..Default::default()
+            });
 
-                // Camera
-                cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
-                    camera: Camera {
-                        target: ai_gym_state.__render_target.clone().unwrap(),
-                        ..default()
-                    },
-                    ..PerspectiveCameraBundle::new()
-                })
-                .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-                cell.spawn_bundle(PbrBundle {
-                    mesh: mesh.clone(),
-                    transform: Transform {
-                        rotation: Quat::from_rotation_y(std::f32::consts::PI),
-                        ..Default::default()
-                    },
-                    visibility: Visibility { is_visible: true },
-                    ..Default::default()
-                })
-                .insert(RayCastMesh::<RaycastMarker>::default());
+            // Camera
+            cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
+                camera: Camera {
+                    target: ai_gym_state.__render_target.clone().unwrap(),
+                    ..default()
+                },
+                ..PerspectiveCameraBundle::new()
             })
-            .insert(CollisionShape::Sphere { radius: 1.0 })
+            .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
+
+            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+            cell.spawn_bundle(PbrBundle {
+                mesh: mesh.clone(),
+                transform: Transform {
+                    rotation: Quat::from_rotation_y(std::f32::consts::PI),
+                    ..Default::default()
+                },
+                visibility: Visibility { is_visible: true },
+                ..Default::default()
+            })
+            .insert(RayCastMesh::<RaycastMarker>::default());
+        });
+
+        ec.insert(CollisionShape::Sphere { radius: 1.0 })
             .insert(PlayerPerspective)
             .insert(Velocity::from_linear(Vec3::ZERO))
             .insert(RigidBody::Dynamic)
@@ -414,10 +410,10 @@ fn spawn_player(
                 ..Default::default()
             })
             .insert(CollisionLayers::new(Layer::Player, Layer::World))
-            .insert(RotationConstraints::lock())
-            .insert(player)
-            .insert(BloodThirst { enemies_near: 0 });
+            .insert(RotationConstraints::lock());
     }
+
+    ec.insert(player);
 }
 
 pub fn spawn_enemies(
