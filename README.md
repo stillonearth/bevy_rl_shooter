@@ -1,5 +1,7 @@
 # Minimal FPS Game Gym Environment with Bevy and DQN Agent
 
+<img width="579" alt="image" src="https://user-images.githubusercontent.com/97428129/161647021-3ecc5083-c5fd-465b-9d28-da912a51c4a6.png">
+
 **Sergei Surovtsev** <<ssurovsev@gmail.com>>
 <br />
 February 2022
