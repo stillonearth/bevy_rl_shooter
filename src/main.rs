@@ -241,18 +241,7 @@ fn clear_world(
     mut walls: Query<Entity, With<Wall>>,
     mut players: Query<(Entity, &Player), Without<PlayerPerspective>>,
     mut interface: Query<Entity, With<Interface>>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
-    let ai_gym_state = ai_gym_state.lock().unwrap();
-
-    // commands.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
-    //     camera: Camera {
-    //         target: ai_gym_state.__render_target.clone().unwrap(),
-    //         ..default()
-    //     },
-    //     ..PerspectiveCameraBundle::new()
-    // });
-
     for e in walls.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
@@ -337,10 +326,6 @@ fn spawn_player(
     ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
     existing_players: Query<Entity, With<PlayerPerspective>>,
 ) {
-    if existing_players.iter().count() == 1 {
-        return;
-    }
-
     let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
@@ -358,6 +343,9 @@ fn spawn_player(
     } else {
         let e = existing_players.iter().last().unwrap();
         ec = commands.entity(e);
+
+        ec.remove::<Velocity>();
+        ec.remove::<RigidBody>();
     }
 
     ec.insert(Transform {
@@ -366,6 +354,17 @@ fn spawn_player(
         ..Default::default()
     });
     ec.insert(GlobalTransform::identity());
+    ec.insert(Velocity::from_linear(Vec3::ZERO));
+    ec.insert(CollisionShape::Sphere { radius: 1.0 })
+        .insert(PlayerPerspective)
+        .insert(RigidBody::Dynamic)
+        .insert(PhysicMaterial {
+            density: 200.0,
+            ..Default::default()
+        })
+        .insert(CollisionLayers::new(Layer::Player, Layer::World))
+        .insert(RotationConstraints::lock())
+        .insert(player);
 
     if existing_players.iter().count() == 0 {
         ec.with_children(|cell| {
@@ -400,20 +399,7 @@ fn spawn_player(
             })
             .insert(RayCastMesh::<RaycastMarker>::default());
         });
-
-        ec.insert(CollisionShape::Sphere { radius: 1.0 })
-            .insert(PlayerPerspective)
-            .insert(Velocity::from_linear(Vec3::ZERO))
-            .insert(RigidBody::Dynamic)
-            .insert(PhysicMaterial {
-                density: 200.0,
-                ..Default::default()
-            })
-            .insert(CollisionLayers::new(Layer::Player, Layer::World))
-            .insert(RotationConstraints::lock());
     }
-
-    ec.insert(player);
 }
 
 pub fn spawn_enemies(
@@ -527,7 +513,10 @@ bitflags! {
 
 fn control_player_keyboard(
     keys: Res<Input<KeyCode>>,
-    player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
+    player_movement_q: Query<
+        (&mut heron::prelude::Velocity, &mut Transform),
+        With<PlayerPerspective>,
+    >,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
 ) {
@@ -568,7 +557,7 @@ fn control_player_keyboard(
 fn control_player(
     player_action: PlayerActionFlags,
     mut player_movement_q: Query<
-        (&mut heron::prelude::Velocity, &Transform),
+        (&mut heron::prelude::Velocity, &mut Transform),
         With<PlayerPerspective>,
     >,
     mut collision_events: EventReader<CollisionEvent>,
@@ -1501,7 +1490,10 @@ fn turnbased_control_system_switch(
 }
 
 fn turnbased_text_control_system(
-    player_movement_q: Query<(&mut heron::prelude::Velocity, &Transform), With<PlayerPerspective>>,
+    player_movement_q: Query<
+        (&mut heron::prelude::Velocity, &mut Transform),
+        With<PlayerPerspective>,
+    >,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
@@ -1554,6 +1546,8 @@ fn turnbased_text_control_system(
         ai_gym_state.rewards.push(player.score as f32);
     }
 
+    physics_time.resume();
+
     control_player(
         action.unwrap(),
         player_movement_q,
@@ -1562,7 +1556,6 @@ fn turnbased_text_control_system(
     );
 
     app_state.pop().unwrap();
-    physics_time.resume();
 }
 
 // -----------
