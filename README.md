@@ -31,7 +31,7 @@ Following API handles are exposed:
 
 ## Mathematical Models
 
-```python/DQN.ipynb``` contains DQN implementation from previous work [1].
+https://github.com/stillonearth/BevyStein/blob/main/python/DQN.ipynb contains DQN implementation from previous work [1].
 
 ## Known Bugs
 
