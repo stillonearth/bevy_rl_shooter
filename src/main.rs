@@ -239,7 +239,7 @@ fn button_system(
 fn clear_world(
     mut commands: Commands,
     mut walls: Query<Entity, With<Wall>>,
-    mut players: Query<(Entity, &Player), Without<PlayerPerspective>>,
+    mut players: Query<(Entity, &Player)>,
     mut interface: Query<Entity, With<Interface>>,
 ) {
     for e in walls.iter_mut() {
@@ -324,7 +324,6 @@ fn spawn_player(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
-    existing_players: Query<Entity, With<PlayerPerspective>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
     let mut rng = thread_rng();
@@ -338,15 +337,7 @@ fn spawn_player(
     };
 
     let mut ec: EntityCommands;
-    if existing_players.iter().count() == 0 {
-        ec = commands.spawn_bundle(());
-    } else {
-        let e = existing_players.iter().last().unwrap();
-        ec = commands.entity(e);
-
-        ec.remove::<Velocity>();
-        ec.remove::<RigidBody>();
-    }
+    ec = commands.spawn_bundle(());
 
     ec.insert(Transform {
         translation: Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32),
@@ -366,40 +357,38 @@ fn spawn_player(
         .insert(RotationConstraints::lock())
         .insert(player);
 
-    if existing_players.iter().count() == 0 {
-        ec.with_children(|cell| {
-            cell.spawn_bundle(PointLightBundle {
-                point_light: PointLight {
-                    intensity: 500.0,
-                    shadows_enabled: false,
-                    ..Default::default()
-                },
+    ec.with_children(|cell| {
+        cell.spawn_bundle(PointLightBundle {
+            point_light: PointLight {
+                intensity: 500.0,
+                shadows_enabled: false,
                 ..Default::default()
-            });
-
-            // Camera
-            cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
-                camera: Camera {
-                    target: ai_gym_state.__render_target.clone().unwrap(),
-                    ..default()
-                },
-                ..PerspectiveCameraBundle::new()
-            })
-            .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-            cell.spawn_bundle(PbrBundle {
-                mesh: mesh.clone(),
-                transform: Transform {
-                    rotation: Quat::from_rotation_y(std::f32::consts::PI),
-                    ..Default::default()
-                },
-                visibility: Visibility { is_visible: true },
-                ..Default::default()
-            })
-            .insert(RayCastMesh::<RaycastMarker>::default());
+            },
+            ..Default::default()
         });
-    }
+
+        // Camera
+        cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
+            camera: Camera {
+                target: ai_gym_state.__render_target.clone().unwrap(),
+                ..default()
+            },
+            ..PerspectiveCameraBundle::new()
+        })
+        .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
+
+        let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+        cell.spawn_bundle(PbrBundle {
+            mesh: mesh.clone(),
+            transform: Transform {
+                rotation: Quat::from_rotation_y(std::f32::consts::PI),
+                ..Default::default()
+            },
+            visibility: Visibility { is_visible: true },
+            ..Default::default()
+        })
+        .insert(RayCastMesh::<RaycastMarker>::default());
+    });
 }
 
 pub fn spawn_enemies(
@@ -470,8 +459,6 @@ pub fn spawn_enemies(
                     ..Default::default()
                 })
                 .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-                // cell.spawn_scene(asset_server.load("craft_speederA.glb#Scene0"));
             })
             .insert(CollisionShape::Sphere { radius: 0.8 })
             .insert(RigidBody::Dynamic)
@@ -621,14 +608,14 @@ fn control_player(
 }
 
 fn render_billboards(
-    mut q: QuerySet<(
-        QueryState<(&Parent, &mut Transform), With<Billboard>>,
-        QueryState<(&GlobalTransform, &Transform), With<PlayerPerspective>>,
+    mut q: ParamSet<(
+        Query<(&Parent, &mut Transform), With<Billboard>>,
+        Query<(&GlobalTransform, &Transform), With<PlayerPerspective>>,
     )>,
     parent_query: Query<(&Player, &GlobalTransform)>,
 ) {
-    let viewer_transform = q.q1().iter().last().unwrap().1.translation;
-    for (parent, mut t) in q.q0().iter_mut() {
+    let viewer_transform = q.p1().iter().last().unwrap().1.translation;
+    for (parent, mut t) in q.p0().iter_mut() {
         let parent_position = parent_query.get(parent.0).unwrap().1.translation;
         let parent_rotation = parent_query.get(parent.0).unwrap().0.rotation;
 
@@ -1011,18 +998,18 @@ fn animate_enemy(
     wolfenstein_sprites: Res<GameAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
 
-    mut q: QuerySet<(
-        QueryState<(&mut AnimationTimer, &Parent, &mut EnemyAnimation), With<Billboard>>,
-        QueryState<&GlobalTransform, With<PlayerPerspective>>,
+    mut q: ParamSet<(
+        Query<(&mut AnimationTimer, &Parent, &mut EnemyAnimation), With<Billboard>>,
+        Query<&GlobalTransform, With<PlayerPerspective>>,
     )>,
     parent_query: Query<(&Player, &GlobalTransform)>,
 ) {
-    let q1 = q.q1();
+    let q1 = q.p1();
     let player_transform = q1.iter().last().unwrap();
     let player_position = player_transform.translation;
     let player_fwd = player_transform.forward().normalize();
 
-    for (mut timer, parent, mut animation) in q.q0().iter_mut() {
+    for (mut timer, parent, mut animation) in q.p0().iter_mut() {
         timer.0.tick(time.delta());
         if timer.0.just_finished() {
             // 2D animations
@@ -1648,6 +1635,13 @@ fn build_game_app() -> App {
                 .with_system(execute_reset_request),
         );
 
+        // app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
+        // app.add_system_set(
+        //     SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
+        // );
+
+        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
+        app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
         app.add_system_set(
             SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
         );
@@ -1669,9 +1663,6 @@ fn build_game_app() -> App {
         app.add_system_set(
             SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
         );
-        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
-
-        app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     } else {
         // This branch would panic on current version
         app.add_state(AppState::MainMenu);
