@@ -1,5 +1,7 @@
 # Minimal FPS Game Gym Environment with Bevy and DQN Agent
 
+<img width="578" alt="image" src="https://user-images.githubusercontent.com/97428129/161647148-3140d9a4-f3b1-4237-8f6a-93f31ff48a07.png">
+
 **Sergei Surovtsev** <<ssurovsev@gmail.com>>
 <br />
 February 2022
@@ -29,7 +31,7 @@ Following API handles are exposed:
 
 ## Mathematical Models
 
-```python/DQN.ipynb``` contains DQN implementation from previous work [1].
+https://github.com/stillonearth/BevyStein/blob/main/python/DQN.ipynb contains DQN implementation from previous work [1].
 
 ## Known Bugs
 
