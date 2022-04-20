@@ -33,10 +33,6 @@ Following API handles are exposed:
 
 https://github.com/stillonearth/BevyStein/blob/main/python/DQN.ipynb contains DQN implementation from previous work [1].
 
-## Known Bugs
-
-* Environment wouldn't do proper reset. In order to restart the environment during training you need to shut down the process and run it again. This should be resolved with bevy 0.7 release.
-
 ## Acknowledgements
 
 * Inspired by [rustenstein](https://github.com/AdRoll/rustenstein) by AdRoll. Map & texture parsing code grabbed from it.

@@ -1,6 +1,4 @@
-import subprocess
 import imageio
-import time
 import requests
 import numpy as np
 
@@ -19,10 +17,7 @@ class Environment:
         
     def reset(self):
         requests.post(API_RESET)
-        time.sleep(3)
-
-    def __start(self):
-        self.rs_env = subprocess.Popen([self.executable_path, "--mode", "train"])
+        return
         
     def step(self, action):
         response = requests.post(API_STEP, action)

@@ -541,6 +541,65 @@ fn control_player_keyboard(
     );
 }
 
+fn turnbased_control_player_keyboard(
+    keys: Res<Input<KeyCode>>,
+    player_movement_q: Query<
+        (&mut heron::prelude::Velocity, &mut Transform),
+        With<PlayerPerspective>,
+    >,
+    collision_events: EventReader<CollisionEvent>,
+    event_gun_shot: EventWriter<EventGunShot>,
+    mut physics_time: ResMut<PhysicsTime>,
+    mut app_state: ResMut<State<AppState>>,
+) {
+    let mut player_action = PlayerActionFlags::IDLE;
+
+    let mut got_pressed = false;
+
+    for key in keys.get_pressed() {
+        if *key == KeyCode::W {
+            player_action |= PlayerActionFlags::FORWARD;
+            got_pressed = true;
+        }
+        if *key == KeyCode::A {
+            player_action |= PlayerActionFlags::BACKWARD;
+            got_pressed = true;
+        }
+        if *key == KeyCode::S {
+            player_action |= PlayerActionFlags::LEFT;
+            got_pressed = true;
+        }
+        if *key == KeyCode::D {
+            player_action |= PlayerActionFlags::RIGHT;
+            got_pressed = true;
+        }
+        if *key == KeyCode::Q {
+            player_action |= PlayerActionFlags::TURN_LEFT;
+            got_pressed = true;
+        }
+        if *key == KeyCode::E {
+            player_action |= PlayerActionFlags::TURN_RIGHT;
+            got_pressed = true;
+        }
+        if keys.just_pressed(KeyCode::Space) {
+            player_action |= PlayerActionFlags::SHOOT;
+            got_pressed = true;
+        }
+    }
+
+    if got_pressed {
+        physics_time.resume();
+        control_player(
+            player_action,
+            player_movement_q,
+            collision_events,
+            event_gun_shot,
+        );
+
+        app_state.pop();
+    }
+}
+
 fn control_player(
     player_action: PlayerActionFlags,
     mut player_movement_q: Query<
@@ -1233,6 +1292,7 @@ fn restart_round(
 fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    mut physics_time: ResMut<PhysicsTime>,
 ) {
     let reset_channel_rx: Receiver<bool>;
     {
@@ -1245,7 +1305,12 @@ fn execute_reset_request(
     }
 
     reset_channel_rx.recv().unwrap();
-    app_state.set(AppState::Reset);
+    {
+        let mut ai_gym_state = ai_gym_state.lock().unwrap();
+        ai_gym_state.is_terminated = true;
+    }
+    physics_time.resume();
+    app_state.set(AppState::Reset).unwrap();
 }
 
 fn draw_gun(mut commands: Commands, wolfenstein_sprites: Res<GameAssets>) {
@@ -1465,7 +1530,7 @@ fn turnbased_control_system_switch(
     mut physics_time: ResMut<PhysicsTime>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        app_state.push(AppState::Control);
+        app_state.push(AppState::Control).unwrap();
         physics_time.pause();
 
         let ai_gym_state = ai_gym_state.lock().unwrap();
@@ -1500,11 +1565,7 @@ fn turnbased_text_control_system(
         return;
     }
 
-    if step_rx.is_empty() {
-        return;
-    }
-
-    let unparsed_action = step_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let unparsed_action = step_rx.recv().unwrap();
 
     if unparsed_action == "" {
         result_tx.send(false).unwrap();
@@ -1635,13 +1696,7 @@ fn build_game_app() -> App {
                 .with_system(execute_reset_request),
         );
 
-        // app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
-        // app.add_system_set(
-        //     SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
-        // );
-
         app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
-        app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
         app.add_system_set(
             SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
         );
@@ -1649,20 +1704,29 @@ fn build_game_app() -> App {
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     } else if args.mode == "playtest" {
         app.add_state(AppState::InGame);
+
         app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
                 .with_system(update_hud)
-                .with_system(control_player_keyboard)
-                .with_system(check_termination),
+                .with_system(check_termination)
+                .with_system(turnbased_control_system_switch),
+        );
+
+        app.add_system_set(
+            SystemSet::on_update(AppState::Control)
+                // Game Systems
+                .with_system(turnbased_control_player_keyboard)
+                .with_system(execute_reset_request),
         );
 
         app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
-        app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
         app.add_system_set(
             SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
         );
+
+        app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
     } else {
         // This branch would panic on current version
         app.add_state(AppState::MainMenu);
