@@ -596,7 +596,7 @@ fn turnbased_control_player_keyboard(
             event_gun_shot,
         );
 
-        app_state.pop();
+        app_state.pop().unwrap();
     }
 }
 
@@ -1272,7 +1272,7 @@ fn check_termination(
             ai_gym_state.__result_channel_tx.send(true).unwrap();
         }
 
-        app_state.set(AppState::RoundOver);
+        app_state.set(AppState::RoundOver).unwrap();
     }
 }
 

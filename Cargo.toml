@@ -4,19 +4,19 @@ name = "bevystein"
 version = "0.0.1"
 
 [dependencies]
-bevy = { version = "0.7.0" }
-bevy_mod_raycast = { version = "0.4.0"}
-bevy_rl = {path = "./crates/bevy_rl"}
-big-brain = {path = "./crates/big-brain"}
+bevy = {version = "0.7.0"}
+bevy_mod_raycast = {version = "0.4.0"}
+bevy_rl = {version = "0.0.1"}
+big-brain = { git = 'https://github.com/zkat/big-brain', rev = '6af12b0' }
 bitflags = "1.3.2"
 clap = "3.1.6"
-heron = { version = "3.0.0", features = ["3d"]}
+crossbeam-channel = "0.5"
+heron = {version = "3.0.0", features = ["3d"]}
 image = "0.24.1"
 names = {version = "0.13.0", default-features = false}
 rand = "0.8.4"
 serde = "1.0.136"
 serde_json = "1.0.79"
-crossbeam-channel = "0.5"
 
 [profile.dev]
 opt-level = 3
