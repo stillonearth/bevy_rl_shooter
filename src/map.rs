@@ -1,4 +1,4 @@
-pub static JSON: &str = r#"{
+pub(crate) static JSON: &str = r#"{
     "empty_space": [
         [
             58,
