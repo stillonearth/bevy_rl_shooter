@@ -55,7 +55,6 @@ fn clear_world(
     mut walls: Query<Entity, With<Wall>>,
     mut players: Query<(Entity, &Player)>,
     mut interface: Query<Entity, With<Interface>>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     for e in walls.iter_mut() {
         commands.entity(e).despawn_recursive();
@@ -67,12 +66,6 @@ fn clear_world(
 
     for e in interface.iter_mut() {
         commands.entity(e).despawn_recursive();
-    }
-
-    let ai_gym_state = ai_gym_state.lock().unwrap();
-
-    if ai_gym_state.__result_reset_channel_tx.is_empty() {
-        ai_gym_state.__result_reset_channel_tx.send(true).unwrap();
     }
 }
 
@@ -318,14 +311,23 @@ fn check_termination(
 
     if player_1.health == 0 || seconds_left <= 0 {
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
-        ai_gym_state.is_terminated = true;
 
-        if ai_gym_state.__result_channel_rx.is_empty() {
-            ai_gym_state.__result_channel_tx.send(true).unwrap();
-        }
+        ai_gym_state.set_terminated(true);
+        ai_gym_state.send_step_result(true);
 
         app_state.set(AppState::RoundOver);
     }
+}
+
+pub(crate) fn restart_round(
+    mut app_state: ResMut<State<AppState>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    mut physics_time: ResMut<PhysicsTime>,
+) {
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    ai_gym_state.reset();
+    physics_time.resume();
+    app_state.set(AppState::InGame);
 }
 
 pub(crate) fn build_game_app(mode: String) -> App {
@@ -345,9 +347,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
             width: 768,
             height: 768,
         })
-        .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags> {
-            ..Default::default()
-        })))
+        .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags>::new())))
         .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
@@ -357,12 +357,13 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
-            SystemSet::on_enter(AppState::InGame)
-                .with_system(spawn_game_world.label("spawn_world"))
-                .with_system(spawn_player.label("spawn_player").after("spawn_world"))
-                .with_system(spawn_enemies.after("spawn_player").label("spawn_enemies"))
-                .with_system(draw_gun)
-                .with_system(init_round.after("spawn_enemies")),
+            SystemSet::on_enter(AppState::InGame).with_system(
+                spawn_game_world
+                    .chain(spawn_player)
+                    .chain(spawn_enemies)
+                    .chain(draw_gun)
+                    .chain(init_round),
+            ),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
@@ -375,9 +376,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
                 .with_system(event_damage),
         )
         .add_system_set(
-            SystemSet::on_enter(AppState::Reset)
-                .with_system(restart_round)
-                .with_system(clear_world),
+            SystemSet::on_enter(AppState::Reset).with_system(clear_world.chain(restart_round)),
         )
         // AI -- global due to
         .add_system(bloodthirst_system)

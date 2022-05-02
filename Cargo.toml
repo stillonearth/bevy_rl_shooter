@@ -6,7 +6,7 @@ version = "0.0.1"
 [dependencies]
 bevy = {version = "0.7.0"}
 bevy_mod_raycast = {version = "0.4.0"}
-bevy_rl = { path="./../bevy_rl"} # {version = "0.0.1"}
+bevy_rl = {version = "0.0.3"}
 big-brain = { git = 'https://github.com/zkat/big-brain', rev = '6af12b0' }
 bitflags = "1.3.2"
 clap = { version = "3.1.12", features = ["derive"] }

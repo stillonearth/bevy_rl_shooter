@@ -1,43 +1,94 @@
-use crossbeam_channel::*;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use bevy_rl::state::AIGymState;
 use heron::*;
 
-use crate::{actions::*, app_states::*};
+use crate::{actions::*, app_states::*, control::*, events::*, player::*};
 
 pub(crate) fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
-    mut physics_time: ResMut<PhysicsTime>,
 ) {
-    let reset_channel_rx: Receiver<bool>;
-    {
-        let ai_gym_state = ai_gym_state.lock().unwrap();
-        reset_channel_rx = ai_gym_state.__reset_channel_rx.clone();
-    }
-
-    if reset_channel_rx.is_empty() {
+    let ai_gym_state = ai_gym_state.lock().unwrap();
+    if !ai_gym_state.is_reset_request() {
         return;
     }
 
-    reset_channel_rx.recv().unwrap();
-    {
-        let mut ai_gym_state = ai_gym_state.lock().unwrap();
-        ai_gym_state.is_terminated = true;
-    }
-    physics_time.resume();
+    ai_gym_state.receive_reset_request();
     app_state.set(AppState::Reset).unwrap();
 }
 
-pub(crate) fn restart_round(
+pub(crate) fn turnbased_control_system_switch(
     mut app_state: ResMut<State<AppState>>,
+    time: Res<Time>,
+    mut timer: ResMut<DelayedControlTimer>,
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    mut physics_time: ResMut<PhysicsTime>,
+) {
+    if timer.0.tick(time.delta()).just_finished() {
+        app_state.push(AppState::Control);
+        physics_time.pause();
+
+        let ai_gym_state = ai_gym_state.lock().unwrap();
+        ai_gym_state.send_step_result(true);
+    }
+}
+
+pub(crate) fn turnbased_text_control_system(
+    player_movement_q: Query<
+        (&mut heron::prelude::Velocity, &mut Transform),
+        With<PlayerPerspective>,
+    >,
+    collision_events: EventReader<CollisionEvent>,
+    event_gun_shot: EventWriter<EventGunShot>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    mut app_state: ResMut<State<AppState>>,
+    mut physics_time: ResMut<PhysicsTime>,
+    player_query: Query<&Player>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
-    ai_gym_state.is_terminated = false;
-    ai_gym_state.rewards = Vec::new();
 
-    app_state.set(AppState::InGame).unwrap();
+    if !ai_gym_state.is_next_action() {
+        return;
+    }
+
+    let unparsed_action = ai_gym_state.receive_action_string();
+
+    if unparsed_action == "" {
+        ai_gym_state.send_step_result(false);
+        return;
+    }
+
+    let action = match unparsed_action.as_str() {
+        "FORWARD" => Some(PlayerActionFlags::FORWARD),
+        "BACKWARD" => Some(PlayerActionFlags::BACKWARD),
+        "LEFT" => Some(PlayerActionFlags::LEFT),
+        "RIGHT" => Some(PlayerActionFlags::RIGHT),
+        "TURN_LEFT" => Some(PlayerActionFlags::TURN_LEFT),
+        "TURN_RIGHT" => Some(PlayerActionFlags::TURN_RIGHT),
+        "SHOOT" => Some(PlayerActionFlags::SHOOT),
+        _ => None,
+    };
+
+    if action.is_none() {
+        ai_gym_state.send_step_result(false);
+        return;
+    }
+
+    let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
+    {
+        ai_gym_state.set_score(player.score as f32);
+    }
+
+    physics_time.resume();
+
+    control_player(
+        action.unwrap(),
+        player_movement_q,
+        collision_events,
+        event_gun_shot,
+    );
+
+    app_state.pop().unwrap();
 }
