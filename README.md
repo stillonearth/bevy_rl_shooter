@@ -7,11 +7,11 @@
 February 2022
 ## Project Description
 
-This project is an attempt to build minimal FPS game with Bevy Game Engine (0.6.0) and create AI agent to play it competitively with human player.
+This project is an attempt to build minimal FPS game with Bevy Game Engine (0.7.0) and create AI agent to play it competitively with human player.
 
 ## Project Goals
 
-* Implementing minimal FPS environment with Bevy Game Engine (0.6.0)
+* Implementing minimal FPS environment with Bevy Game Engine (0.7.0)
 
 ## Technical Formulation of Problem
 
@@ -40,4 +40,4 @@ https://github.com/stillonearth/BevyStein/blob/main/python/DQN.ipynb contains DQ
 
 ## References
 
-[1] **Using Deep-Q-Networks (DQN) for solving Unity ML Agents Banana Collector Discreet Control Environment and Evaluating DQN Improvements**, Sergei Surovtsev, July 2019, https://github.com/cwiz/DRLND-Project-Navigation/blob/master/WRITEUP.md
+1. **Using Deep-Q-Networks (DQN) for solving Unity ML Agents Banana Collector Discreet Control Environment and Evaluating DQN Improvements**, Sergei Surovtsev, July 2019, https://github.com/cwiz/DRLND-Project-Navigation/blob/master/WRITEUP.md
