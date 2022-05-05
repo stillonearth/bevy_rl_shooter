@@ -1,6 +1,6 @@
 # Minimal FPS Game Gym Environment with Bevy and DQN Agent
 
-<img width="578" alt="image" src="https://user-images.githubusercontent.com/97428129/161647148-3140d9a4-f3b1-4237-8f6a-93f31ff48a07.png">
+https://user-images.githubusercontent.com/97428129/166922885-40b00260-00c5-490e-9eaf-4561a597d459.mp4
 
 **Sergei Surovtsev** <<ssurovsev@gmail.com>>
 <br />
