@@ -15,21 +15,13 @@ use crate::{
 // ----------
 
 #[derive(Component)]
-struct PlayerAvatar;
-
-#[derive(Component)]
 pub(crate) struct RoundTimer(pub(crate) Timer);
-
-#[derive(Component)]
-struct Weapon;
 
 pub(crate) struct RaycastMarker;
 
 // -------
 // Systems
 // -------
-
-// Main Menu
 
 fn clear_world(
     mut commands: Commands,
@@ -49,8 +41,6 @@ fn clear_world(
         commands.entity(e).despawn_recursive();
     }
 }
-
-// InGame
 
 fn restart_round_timer(mut commands: Commands) {
     commands.insert_resource(RoundTimer(Timer::from_seconds(60.0, false)));
