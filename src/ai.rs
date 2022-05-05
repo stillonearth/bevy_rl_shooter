@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use big_brain::prelude::*;
 use heron::*;
 
-use crate::{animations::*, events::*, player::*};
+use crate::{actors, animations::*, events::*};
 
 #[derive(Component, Debug)]
 pub(crate) struct BloodThirst {
@@ -12,9 +12,9 @@ pub(crate) struct BloodThirst {
 }
 
 pub(crate) fn bloodthirst_system(
-    mut thirsts: Query<(&GlobalTransform, &Player, &mut BloodThirst)>,
+    mut thirsts: Query<(&GlobalTransform, &actors::Actor, &mut BloodThirst)>,
 ) {
-    let _transforms: Vec<(GlobalTransform, Player)> = thirsts
+    let _transforms: Vec<(GlobalTransform, actors::Actor)> = thirsts
         .iter()
         .map(|(p, g, _)| (p.clone(), g.clone()))
         .collect();
@@ -50,14 +50,14 @@ pub(crate) fn kill_action_system(
         &mut Velocity,
         &mut Transform,
         &mut BloodThirst,
-        &mut Player,
+        &mut actors::Actor,
     )>,
     mut actors: Query<(&Actor, &mut ActionState, &mut Kill)>,
     mut enemy_animations: Query<(Entity, &Parent, &mut EnemyAnimation)>,
 
     mut event_gun_shot: EventWriter<EventGunShot>,
 ) {
-    let players: Vec<(Entity, Transform, Player)> = bloodthirsts
+    let players: Vec<(Entity, Transform, actors::Actor)> = bloodthirsts
         .iter()
         .map(|(e, _, t, _, p)| (e.clone(), t.clone(), p.clone()))
         .collect();

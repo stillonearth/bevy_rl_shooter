@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use heron::*;
 
-use crate::{actions::*, app_states::*, events::*, physics::*, player::*};
+use crate::{actions::*, actors::*, app_states::*, events::*, physics::*};
 
 pub(crate) struct DelayedControlTimer(pub(crate) Timer);
 

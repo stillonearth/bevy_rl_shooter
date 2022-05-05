@@ -1,13 +1,13 @@
 use bevy::prelude::*;
 
-use crate::{animations::*, player::*};
+use crate::{actors::Actor, actors::*, animations::*};
 
 pub(crate) fn render_billboards(
     mut q: ParamSet<(
         Query<(&Parent, &mut Transform), With<Billboard>>,
         Query<(&GlobalTransform, &Transform), With<PlayerPerspective>>,
     )>,
-    parent_query: Query<(&Player, &GlobalTransform)>,
+    parent_query: Query<(&Actor, &GlobalTransform)>,
 ) {
     let viewer_transform = q.p1().iter().last().unwrap().1.translation;
     for (parent, mut t) in q.p0().iter_mut() {

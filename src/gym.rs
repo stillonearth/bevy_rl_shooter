@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_rl::state::AIGymState;
 use heron::*;
 
-use crate::{actions::*, app_states::*, control::*, events::*, player::*};
+use crate::{actions::*, actors::Actor, actors::*, app_states::*, control::*, events::*};
 
 pub(crate) fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
@@ -45,7 +45,7 @@ pub(crate) fn turnbased_text_control_system(
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
     mut app_state: ResMut<State<AppState>>,
     mut physics_time: ResMut<PhysicsTime>,
-    player_query: Query<&Player>,
+    player_query: Query<&Actor>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
 

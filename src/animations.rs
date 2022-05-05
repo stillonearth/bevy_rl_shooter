@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{assets::*, hud::*, player::*};
+use crate::{actors::Actor, actors::*, assets::*, hud::*};
 
 #[derive(Component)]
 pub(crate) struct AnimationTimer(pub(crate) Timer);
@@ -57,7 +57,7 @@ pub(crate) fn animate_enemy(
         Query<(&mut AnimationTimer, &Parent, &mut EnemyAnimation), With<Billboard>>,
         Query<&GlobalTransform, With<PlayerPerspective>>,
     )>,
-    parent_query: Query<(&Player, &GlobalTransform)>,
+    parent_query: Query<(&Actor, &GlobalTransform)>,
 ) {
     let q1 = q.p1();
     let player_transform = q1.iter().last().unwrap();

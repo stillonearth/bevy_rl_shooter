@@ -1,4 +1,5 @@
 mod actions;
+mod actors;
 mod ai;
 mod animations;
 mod app_states;
@@ -11,7 +12,6 @@ mod hud;
 mod level;
 mod map;
 mod physics;
-mod player;
 mod render;
 mod screens;
 

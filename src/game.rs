@@ -1,32 +1,14 @@
+use std::sync::{Arc, Mutex};
+
+use bevy::prelude::*;
+use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
+use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
+use big_brain::prelude::*;
 use heron::*;
 
-// use std::ops::Range;
-use std::sync::{Arc, Mutex};
-// use std::time::Duration;
-
-use bevy::ecs::system::EntityCommands;
-use bevy::prelude::*;
-use bevy::utils::Instant;
-use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
-
-use big_brain::prelude::*;
-
-use bevy_rl::state::AIGymState;
-use bevy_rl::AIGymCamera;
-use bevy_rl::AIGymPlugin;
-use bevy_rl::AIGymSettings;
-
-use names::Generator;
-use rand::thread_rng;
-use rand::{seq::SliceRandom, Rng};
-// use serde::{Deserialize, Serialize};
-// use serde_json;
-
-const DEBUG: bool = false;
-
 use crate::{
-    actions::*, ai::*, animations::*, app_states::*, assets::*, control::*, events::*, gym::*,
-    hud::*, level::*, physics::*, player::*, render::*, screens::*,
+    actions::*, actors::Actor, actors::*, ai::*, animations::*, app_states::*, assets::*,
+    control::*, events::*, gym::*, hud::*, level::*, render::*, screens::*,
 };
 
 // ----------
@@ -53,7 +35,7 @@ pub(crate) struct RaycastMarker;
 fn clear_world(
     mut commands: Commands,
     mut walls: Query<Entity, With<Wall>>,
-    mut players: Query<(Entity, &Player)>,
+    mut players: Query<(Entity, &Actor)>,
     mut interface: Query<Entity, With<Interface>>,
 ) {
     for e in walls.iter_mut() {
@@ -71,235 +53,12 @@ fn clear_world(
 
 // InGame
 
-#[derive(Component)]
-pub(crate) struct Wall;
-
-fn spawn_game_world(
-    mut commands: Commands,
-    game_map: Res<GameMap>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let size = 255.0 * 255.0;
-    let mesh = meshes.add(Mesh::from(shape::Plane {
-        size: (size as f32),
-    }));
-
-    let white_material_handle = materials.add(Color::WHITE.into());
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: mesh.clone(),
-            material: white_material_handle.clone(),
-            ..Default::default()
-        })
-        .insert(RigidBody::Static)
-        .insert(CollisionShape::HeightField {
-            size: Vec2::new((100 * 255) as f32, (100 * 255) as f32),
-            heights: vec![
-                vec![100.5, 0.8, 0., 0., 3000.0],
-                vec![0.8, 0.2, 0., 0., 300.0],
-                vec![0., 0.5, 0., 0., 300.0],
-                vec![0., 0., 0.6, 0., 300.0],
-                vec![300., 300., 300., 300., 300.0],
-            ],
-        });
-
-    if DEBUG {
-        return;
-    }
-
-    for (x, z) in game_map.walls.iter() {
-        commands
-            .spawn_bundle(PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Cube { size: 2.0 })),
-                material: white_material_handle.clone(),
-                transform: Transform::from_translation(Vec3::new(*x as f32, 1.0, *z as f32)),
-                global_transform: GlobalTransform::identity(),
-                ..Default::default()
-            })
-            .insert(RigidBody::Static)
-            .insert(CollisionShape::Cuboid {
-                half_extends: Vec3::new(1.0, 1.0, 1.0),
-                border_radius: None,
-            })
-            .insert(Wall)
-            .insert(CollisionLayers::new(Layer::World, Layer::Player))
-            .insert(RayCastMesh::<RaycastMarker>::default()); // Make this mesh ray cast-able
-    }
-}
-
-fn init_round(mut commands: Commands) {
+fn restart_round_timer(mut commands: Commands) {
     commands.insert_resource(RoundTimer(Timer::from_seconds(60.0, false)));
 }
 
-fn spawn_player(
-    mut commands: Commands,
-    game_map: Res<GameMap>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
-) {
-    let ai_gym_state = ai_gym_state.lock().unwrap();
-    let mut rng = thread_rng();
-    let pos = game_map.empty_space.choose(&mut rng).unwrap();
-    let player = Player {
-        position: (pos.0 as f32, pos.1 as f32),
-        rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
-        name: "Player 1".to_string(),
-        health: 100,
-        score: 0,
-    };
-
-    let mut ec: EntityCommands;
-    ec = commands.spawn_bundle(());
-
-    ec.insert(Transform {
-        translation: Vec3::new(player.position.0 as f32, 1.0, player.position.1 as f32),
-        rotation: Quat::from_rotation_y(player.rotation),
-        ..Default::default()
-    });
-    ec.insert(GlobalTransform::identity());
-    ec.insert(Velocity::from_linear(Vec3::ZERO));
-    ec.insert(CollisionShape::Sphere { radius: 1.0 })
-        .insert(PlayerPerspective)
-        .insert(RigidBody::Dynamic)
-        .insert(PhysicMaterial {
-            density: 200.0,
-            ..Default::default()
-        })
-        .insert(CollisionLayers::new(Layer::Player, Layer::World))
-        .insert(RotationConstraints::lock())
-        .insert(player);
-
-    ec.with_children(|cell| {
-        cell.spawn_bundle(PointLightBundle {
-            point_light: PointLight {
-                intensity: 500.0,
-                shadows_enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-
-        // Camera
-        cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
-            camera: Camera {
-                target: ai_gym_state.__render_target.clone().unwrap(),
-                ..default()
-            },
-            ..PerspectiveCameraBundle::new()
-        })
-        .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-        let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-        cell.spawn_bundle(PbrBundle {
-            mesh: mesh.clone(),
-            transform: Transform {
-                rotation: Quat::from_rotation_y(std::f32::consts::PI),
-                ..Default::default()
-            },
-            visibility: Visibility { is_visible: true },
-            ..Default::default()
-        })
-        .insert(RayCastMesh::<RaycastMarker>::default());
-    });
-}
-
-pub(crate) fn spawn_enemies(
-    mut commands: Commands,
-    game_map: Res<GameMap>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    game_sprites: Res<GameAssets>,
-    wolfenstein_sprites: Res<GameAssets>,
-) {
-    let enemy_count = match DEBUG {
-        true => 64,
-        false => 64,
-    };
-
-    for _ in 0..enemy_count {
-        // choose player random spawn point
-        let mut rng = thread_rng();
-        let pos = game_map.empty_space.choose(&mut rng).unwrap();
-        let player = Player {
-            position: (pos.0 as f32, pos.1 as f32),
-            rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
-            name: Generator::default().next().unwrap(),
-            health: 100,
-            score: 0,
-        };
-
-        let transform = Transform {
-            translation: Vec3::new((player.position.0) as f32, 1.0, (player.position.1) as f32),
-            rotation: Quat::from_rotation_y(player.rotation),
-            ..Default::default()
-        };
-
-        commands
-            .spawn_bundle((transform, GlobalTransform::identity()))
-            .with_children(|cell| {
-                let mut mesh = Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7)));
-                let uv = wolfenstein_sprites.guard_standing_animation[0][0].clone();
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-                let mesh = meshes.add(mesh);
-
-                cell.spawn_bundle(PbrBundle {
-                    mesh: mesh.clone(),
-                    material: game_sprites.guard_billboard_material.clone(),
-                    transform: Transform {
-                        translation: Vec3::ZERO,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .insert(Billboard)
-                .insert(EnemyAnimation {
-                    frame: 0,
-                    handle: mesh,
-                    animation_type: AnimationType::Standing,
-                })
-                .insert(AnimationTimer(Timer::from_seconds(0.3, true)))
-                .insert(RayCastMesh::<RaycastMarker>::default());
-
-                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-                cell.spawn_bundle(PbrBundle {
-                    mesh: mesh.clone(),
-                    material: game_sprites.guard_billboard_material.clone(),
-                    transform: Transform {
-                        translation: Vec3::ZERO,
-                        ..Default::default()
-                    },
-                    visibility: Visibility { is_visible: false },
-                    ..Default::default()
-                })
-                .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-            })
-            .insert(CollisionShape::Sphere { radius: 0.8 })
-            .insert(RigidBody::Dynamic)
-            .insert(PhysicMaterial {
-                density: 1.0,
-                ..Default::default()
-            })
-            .insert(player)
-            .insert(Velocity::from_linear(Vec3::ZERO))
-            .insert(CollisionLayers::new(Layer::Player, Layer::World))
-            .insert(RotationConstraints::lock())
-            .insert(BloodThirst { enemies_near: 0 })
-            .insert(
-                Thinker::build()
-                    .picker(FirstToScore { threshold: 0.0 })
-                    .when(
-                        BloodThirsty,
-                        Kill {
-                            last_action: Instant::now(),
-                        },
-                    ),
-            );
-    }
-}
-
 fn check_termination(
-    player_query: Query<&Player>,
+    player_query: Query<&Actor>,
     time: Res<Time>,
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
@@ -357,13 +116,12 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
-            SystemSet::on_enter(AppState::InGame).with_system(
-                spawn_game_world
-                    .chain(spawn_player)
-                    .chain(spawn_enemies)
-                    .chain(draw_gun)
-                    .chain(init_round),
-            ),
+            SystemSet::on_enter(AppState::InGame)
+                .with_system(spawn_game_world)
+                .with_system(spawn_player_actor)
+                .with_system(spawn_computer_actors)
+                .with_system(draw_gun)
+                .with_system(restart_round_timer),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)

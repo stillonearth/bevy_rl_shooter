@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{animations::*, assets::*, game::*, player::*, screens::*};
+use crate::{actors::Actor, animations::*, assets::*, game::*, screens::*};
 
 #[derive(Component)]
 pub(crate) struct ScoreText;
@@ -28,7 +28,6 @@ pub(crate) fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
-                // size: Size::new(Val::Percent(100.0), Val::Auto),
                 position_type: PositionType::Absolute,
                 position: Rect {
                     left: Val::Px(50.0),
@@ -75,7 +74,7 @@ pub(crate) fn draw_hud(mut commands: Commands, game_assets: Res<GameAssets>) {
 }
 
 pub(crate) fn update_hud(
-    player_query: Query<&Player>,
+    player_query: Query<&Actor>,
     mut score_text_query: Query<&mut Text, With<ScoreText>>,
     mut time_left_query: Query<&mut Text, Without<ScoreText>>,
     time: Res<Time>,

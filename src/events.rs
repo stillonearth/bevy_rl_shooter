@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_mod_raycast::{RayCastMesh, RayCastSource};
 use heron::*;
 
-use crate::{animations::*, assets::*, game::*, hud::*, player::*};
+use crate::{actors::Actor, animations::*, assets::*, game::*, hud::*, level::*};
 
 #[derive(Debug)]
 pub(crate) struct EventGunShot {
@@ -27,7 +27,7 @@ pub(crate) fn event_gun_shot(
 
     mut gun_sprite_query: Query<(&Weapon, &mut UiImage)>,
     shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
-    player_query: Query<(Entity, &Children, &Player)>,
+    player_query: Query<(Entity, &Children, &Actor)>,
     wall_query: Query<(Entity, &Wall)>,
 
     mut gunshot_event: EventReader<EventGunShot>,
@@ -92,7 +92,7 @@ pub(crate) fn event_gun_shot(
 
 pub(crate) fn event_damage(
     mut commands: Commands,
-    mut player_query: Query<(Entity, &Children, &mut Player, &mut Velocity)>,
+    mut player_query: Query<(Entity, &Children, &mut Actor, &mut Velocity)>,
     mut billboard_query: Query<(Entity, &mut EnemyAnimation, &Billboard)>,
     mut event_damage: EventReader<EventDamage>,
 ) {
