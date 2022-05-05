@@ -3,12 +3,11 @@ use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
 use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
-use big_brain::prelude::*;
 use heron::*;
 
 use crate::{
-    actions::*, actors::Actor, actors::*, ai::*, animations::*, app_states::*, assets::*,
-    control::*, events::*, gym::*, hud::*, level::*, render::*, screens::*,
+    actions::*, actors::Actor, actors::*, animations::*, app_states::*, assets::*, control::*,
+    events::*, gym::*, hud::*, level::*, render::*, screens::*,
 };
 
 // ----------
@@ -110,18 +109,29 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
-        .add_plugin(BigBrainPlugin)
         // State chain
         .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(main_screen))
         .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
-                .with_system(spawn_game_world)
-                .with_system(spawn_player_actor)
-                .with_system(spawn_computer_actors)
-                .with_system(draw_gun)
-                .with_system(restart_round_timer),
+                .with_system(spawn_game_world.label("spawn_game_world"))
+                .with_system(
+                    spawn_player_actor
+                        .label("spawn_player_actor")
+                        .after("spawn_game_world"),
+                )
+                .with_system(
+                    spawn_computer_actors
+                        .label("spawn_computer_actors")
+                        .after("spawn_game_world"),
+                )
+                .with_system(draw_gun.label("draw_gun"))
+                .with_system(
+                    restart_round_timer
+                        .label("restart_round_timer")
+                        .after("spawn_game_world"),
+                ),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
@@ -134,12 +144,10 @@ pub(crate) fn build_game_app(mode: String) -> App {
                 .with_system(event_damage),
         )
         .add_system_set(
-            SystemSet::on_enter(AppState::Reset).with_system(clear_world.chain(restart_round)),
+            SystemSet::on_enter(AppState::Reset)
+                .with_system(clear_world.label("clear_world"))
+                .with_system(restart_round.after("clear_world")),
         )
-        // AI -- global due to
-        .add_system(bloodthirst_system)
-        .add_system_to_stage(BigBrainStage::Actions, kill_action_system)
-        .add_system_to_stage(BigBrainStage::Scorers, bloodthirsty_scorer_system)
         // Initialize Resources
         .init_resource::<GameMap>()
         .init_resource::<GameAssets>();

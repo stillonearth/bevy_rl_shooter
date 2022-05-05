@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use bevy::prelude::*;
 
+#[derive(Clone)]
 pub struct GameAssets {
     pub gun: Vec<Handle<Image>>,
     pub gun_index: u8,
@@ -46,7 +47,6 @@ impl FromWorld for GameAssets {
             offset: f32,
         ) -> Vec<Vec<[f32; 2]>> {
             let mut frame_set: Vec<Vec<[f32; 2]>> = Vec::new();
-            // let offset = 0.042;
 
             for column in frames {
                 let mut uvs1: Vec<[f32; 2]> = Vec::<[f32; 2]>::new();

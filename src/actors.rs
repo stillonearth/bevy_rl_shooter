@@ -2,17 +2,15 @@ use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use bevy::prelude::*;
 use bevy_mod_raycast::{RayCastMesh, RayCastSource};
 use bevy_rl::{state::AIGymState, AIGymCamera};
-use big_brain::prelude::*;
 use heron::*;
 
 use names::Generator;
 
-use crate::{actions::*, ai::*, animations::*, assets::*, game::*, level::*, physics::*};
+use crate::{actions::*, animations::*, assets::*, game::*, level::*, physics::*};
 
 #[derive(Component, Clone)]
 pub(crate) struct Actor {
@@ -39,7 +37,17 @@ pub(crate) struct ActorBundle {
     physics_material: PhysicMaterial,
 }
 
-fn get_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
+#[derive(Bundle)]
+pub(crate) struct BillboardBundle {
+    #[bundle]
+    pbr_bundle: PbrBundle,
+    billboard: Billboard,
+    animation: EnemyAnimation,
+    raycast_marker: RayCastMesh<RaycastMarker>,
+    animation_timer: AnimationTimer,
+}
+
+fn new_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
 
@@ -71,6 +79,50 @@ fn get_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
     };
 }
 
+fn new_billboard_bundle(assets: GameAssets, mesh: Handle<Mesh>) -> BillboardBundle {
+    return BillboardBundle {
+        pbr_bundle: PbrBundle {
+            mesh: mesh.clone(),
+            material: assets.guard_billboard_material.clone(),
+            transform: Transform {
+                translation: Vec3::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        billboard: Billboard,
+        animation: EnemyAnimation {
+            frame: 0,
+            handle: mesh.clone(),
+            animation_type: AnimationType::Standing,
+        },
+        animation_timer: AnimationTimer(Timer::from_seconds(0.3, true)),
+        raycast_marker: RayCastMesh::<RaycastMarker>::default(),
+    };
+}
+
+#[derive(Bundle)]
+struct ActorWeaponBundle {
+    #[bundle]
+    pbr_bundle: PbrBundle,
+    raycast_source: RayCastSource<RaycastMarker>,
+}
+
+fn new_actor_weapon_bundle(mesh: Handle<Mesh>) -> ActorWeaponBundle {
+    return ActorWeaponBundle {
+        pbr_bundle: PbrBundle {
+            mesh: mesh,
+            transform: Transform {
+                translation: Vec3::ZERO,
+                ..Default::default()
+            },
+            visibility: Visibility { is_visible: false },
+            ..Default::default()
+        },
+        raycast_source: RayCastSource::<RaycastMarker>::new_transform_empty(),
+    };
+}
+
 pub(crate) fn spawn_player_actor(
     mut commands: Commands,
     game_map: Res<GameMap>,
@@ -78,7 +130,7 @@ pub(crate) fn spawn_player_actor(
     ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
-    let actor_bundle = get_actor_bundle(game_map.clone(), "Player 1".to_string());
+    let actor_bundle = new_actor_bundle(game_map.clone(), "Player 1".to_string());
     commands
         .spawn_bundle(actor_bundle)
         .insert(PlayerPerspective)
@@ -122,120 +174,26 @@ pub(crate) fn spawn_computer_actors(
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
     game_sprites: Res<GameAssets>,
-    wolfenstein_sprites: Res<GameAssets>,
 ) {
-    // let enemy_count = 64;
-
-    // for _ in 0..enemy_count {
-    //     let actor_bundle = get_actor_bundle(game_map.clone(), Generator::default().next().unwrap());
-
-    //     commands
-    //         .spawn()
-    //         .with_children(|cell| {
-    //             let mut mesh = Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7)));
-    //             let uv = wolfenstein_sprites.guard_standing_animation[0][0].clone();
-    //             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-    //             let mesh = meshes.add(mesh);
-
-    //             // Hitbox
-    //             cell.spawn()
-    //                 .insert(Billboard)
-    //                 .insert(EnemyAnimation {
-    //                     frame: 0,
-    //                     handle: mesh,
-    //                     animation_type: AnimationType::Standing,
-    //                 })
-    //                 .insert(AnimationTimer(Timer::from_seconds(0.3, true)))
-    //                 .insert(RayCastMesh::<RaycastMarker>::default());
-
-    //             // Camera
-    //             let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-    //             cell.spawn_bundle(PbrBundle {
-    //                 mesh: mesh.clone(),
-    //                 material: game_sprites.guard_billboard_material.clone(),
-    //                 transform: Transform {
-    //                     translation: Vec3::ZERO,
-    //                     ..Default::default()
-    //                 },
-    //                 visibility: Visibility { is_visible: false },
-    //                 ..Default::default()
-    //             })
-    //             .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-    //             cell.spawn_bundle(actor_bundle);
-    //         })
-    //         // AI
-    //         .insert(BloodThirst { enemies_near: 0 })
-    //         .insert(
-    //             Thinker::build()
-    //                 .picker(FirstToScore { threshold: 0.0 })
-    //                 .when(
-    //                     BloodThirsty,
-    //                     Kill {
-    //                         last_action: Instant::now(),
-    //                     },
-    //                 ),
-    //         );
-    // }
-
     let enemy_count = 64;
 
     for _ in 0..enemy_count {
-        // choose player random spawn point
-        let mut rng = thread_rng();
-        let pos = game_map.empty_space.choose(&mut rng).unwrap();
+        let actor_bundle = new_actor_bundle(game_map.clone(), Generator::default().next().unwrap());
 
-        let actor_bundle = get_actor_bundle(game_map.clone(), Generator::default().next().unwrap());
+        commands.spawn_bundle(actor_bundle).with_children(|cell| {
+            // Spawn soldier sprite
+            let mut mesh = Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7)));
+            let uv = game_sprites.guard_standing_animation[0][0].clone();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+            let mesh = meshes.add(mesh);
 
-        commands
-            .spawn_bundle(actor_bundle)
-            .with_children(|cell| {
-                let mut mesh = Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7)));
-                let uv = wolfenstein_sprites.guard_standing_animation[0][0].clone();
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-                let mesh = meshes.add(mesh);
+            let billboard_bundle = new_billboard_bundle(game_sprites.clone(), mesh);
+            cell.spawn_bundle(billboard_bundle);
 
-                cell.spawn_bundle(PbrBundle {
-                    mesh: mesh.clone(),
-                    material: game_sprites.guard_billboard_material.clone(),
-                    transform: Transform {
-                        translation: Vec3::ZERO,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .insert(Billboard)
-                .insert(EnemyAnimation {
-                    frame: 0,
-                    handle: mesh,
-                    animation_type: AnimationType::Standing,
-                })
-                .insert(AnimationTimer(Timer::from_seconds(0.3, true)))
-                .insert(RayCastMesh::<RaycastMarker>::default());
-
-                let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-                cell.spawn_bundle(PbrBundle {
-                    mesh: mesh.clone(),
-                    material: game_sprites.guard_billboard_material.clone(),
-                    transform: Transform {
-                        translation: Vec3::ZERO,
-                        ..Default::default()
-                    },
-                    visibility: Visibility { is_visible: false },
-                    ..Default::default()
-                })
-                .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-            })
-            .insert(BloodThirst { enemies_near: 0 })
-            .insert(
-                Thinker::build()
-                    .picker(FirstToScore { threshold: 0.0 })
-                    .when(
-                        BloodThirsty,
-                        Kill {
-                            last_action: Instant::now(),
-                        },
-                    ),
-            );
+            // Weapon
+            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
+            let actor_weapon_bundle = new_actor_weapon_bundle(mesh);
+            cell.spawn_bundle(actor_weapon_bundle);
+        });
     }
 }
