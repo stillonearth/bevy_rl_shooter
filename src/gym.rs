@@ -27,7 +27,7 @@ pub(crate) fn turnbased_control_system_switch(
     mut physics_time: ResMut<PhysicsTime>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        app_state.push(AppState::Control);
+        app_state.overwrite_push(AppState::Control).unwrap();
         physics_time.pause();
 
         let ai_gym_state = ai_gym_state.lock().unwrap();
@@ -45,7 +45,6 @@ pub(crate) fn turnbased_text_control_system(
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
     mut app_state: ResMut<State<AppState>>,
     mut physics_time: ResMut<PhysicsTime>,
-    player_query: Query<&Actor>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
@@ -76,10 +75,7 @@ pub(crate) fn turnbased_text_control_system(
         return;
     }
 
-    let player = player_query.iter().find(|e| e.name == "Player 1").unwrap();
-    {
-        ai_gym_state.set_score(player.score as f32);
-    }
+    ai_gym_state.set_score(0.0);
 
     physics_time.resume();
 

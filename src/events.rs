@@ -1,8 +1,11 @@
+use std::sync::{Arc, Mutex};
+
 use bevy::prelude::*;
 use bevy_mod_raycast::{RayCastMesh, RayCastSource};
+use bevy_rl::state::AIGymState;
 use heron::*;
 
-use crate::{actors::Actor, animations::*, assets::*, game::*, hud::*, level::*};
+use crate::{actions::*, actors::Actor, animations::*, assets::*, game::*, hud::*, level::*};
 
 #[derive(Debug)]
 pub(crate) struct EventGunShot {
@@ -34,7 +37,10 @@ pub(crate) fn event_gun_shot(
     mut event_damage: EventWriter<EventDamage>,
 
     mut game_sprites: ResMut<GameAssets>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+
     for gunshot_event in gunshot_event.iter() {
         if gunshot_event.from == "Player 1".to_string() {
             for (_, mut ui_image) in gun_sprite_query.iter_mut() {
@@ -76,6 +82,10 @@ pub(crate) fn event_gun_shot(
                 to: enemy.name.clone(),
             });
 
+            if gunshot_event.from == "Player 1".to_string() {
+                ai_gym_state.set_score(10.0);
+            }
+
             player_hit = true;
             continue;
         }
@@ -84,7 +94,10 @@ pub(crate) fn event_gun_shot(
         if !player_hit {
             let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
             if wall_entity.is_some() {
-                commands.entity(hit_entity).despawn_recursive();
+                if gunshot_event.from == "Player 1".to_string() {
+                    ai_gym_state.set_score(-10.0);
+                }
+                // commands.entity(hit_entity).despawn_recursive();
             }
         }
     }

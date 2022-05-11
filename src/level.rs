@@ -35,9 +35,14 @@ struct WallBundle {
 pub(crate) fn spawn_game_world(
     mut commands: Commands,
     game_map: Res<GameMap>,
+    walls: Query<Entity, With<Wall>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    if !walls.is_empty() {
+        return;
+    }
+
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),

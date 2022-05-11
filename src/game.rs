@@ -29,9 +29,9 @@ fn clear_world(
     mut players: Query<(Entity, &Actor)>,
     mut interface: Query<Entity, With<Interface>>,
 ) {
-    for e in walls.iter_mut() {
-        commands.entity(e).despawn_recursive();
-    }
+    // for e in walls.iter_mut() {
+    //     commands.entity(e).despawn_recursive();
+    // }
 
     for (e, _) in players.iter_mut() {
         commands.entity(e).despawn_recursive();
@@ -42,8 +42,8 @@ fn clear_world(
     }
 }
 
-fn restart_round_timer(mut commands: Commands) {
-    commands.insert_resource(RoundTimer(Timer::from_seconds(60.0, false)));
+fn restart_round_timer(mut timer: ResMut<RoundTimer>) {
+    timer.0.reset();
 }
 
 fn check_termination(
@@ -63,7 +63,7 @@ fn check_termination(
         ai_gym_state.set_terminated(true);
         ai_gym_state.send_step_result(true);
 
-        app_state.set(AppState::RoundOver);
+        app_state.overwrite_set(AppState::RoundOver).unwrap();
     }
 }
 
@@ -75,7 +75,7 @@ pub(crate) fn restart_round(
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
     ai_gym_state.reset();
     physics_time.resume();
-    app_state.set(AppState::InGame);
+    app_state.set(AppState::InGame).unwrap();
 }
 
 pub(crate) fn build_game_app(mode: String) -> App {
@@ -96,6 +96,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
             height: 768,
         })
         .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags>::new())))
+        .insert_resource(RoundTimer(Timer::from_seconds(60.0, false)))
         .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
