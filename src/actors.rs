@@ -1,16 +1,19 @@
+use bevy::core_pipeline::clear_color::ClearColorConfig;
+use bevy::render::camera::RenderTarget;
+use bevy_rl::AIGymSettings;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
-use bevy_mod_raycast::{RayCastMesh, RayCastSource};
-use bevy_rl::{state::AIGymState, AIGymCamera};
+use bevy_mod_raycast::RayCastSource;
+use bevy_rl::state::AIGymState;
 use heron::*;
 
 use names::Generator;
 
-use crate::{actions::*, animations::*, assets::*, game::*, level::*, physics::*};
+use crate::{actions::*, game::*, level::*, physics::*};
 
 #[derive(Component, Clone)]
 pub(crate) struct Actor {
@@ -35,16 +38,6 @@ pub(crate) struct ActorBundle {
     transform: Transform,
     velocity: Velocity,
     physics_material: PhysicMaterial,
-}
-
-#[derive(Bundle)]
-pub(crate) struct BillboardBundle {
-    #[bundle]
-    pbr_bundle: PbrBundle,
-    billboard: Billboard,
-    animation: EnemyAnimation,
-    raycast_marker: RayCastMesh<RaycastMarker>,
-    animation_timer: AnimationTimer,
 }
 
 fn new_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
@@ -79,28 +72,6 @@ fn new_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
     };
 }
 
-fn new_billboard_bundle(assets: GameAssets, mesh: Handle<Mesh>) -> BillboardBundle {
-    return BillboardBundle {
-        pbr_bundle: PbrBundle {
-            mesh: mesh.clone(),
-            material: assets.guard_billboard_material.clone(),
-            transform: Transform {
-                translation: Vec3::ZERO,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        billboard: Billboard,
-        animation: EnemyAnimation {
-            frame: 0,
-            handle: mesh.clone(),
-            animation_type: AnimationType::Standing,
-        },
-        animation_timer: AnimationTimer(Timer::from_seconds(0.3, true)),
-        raycast_marker: RayCastMesh::<RaycastMarker>::default(),
-    };
-}
-
 #[derive(Bundle)]
 struct ActorWeaponBundle {
     #[bundle]
@@ -116,84 +87,60 @@ fn new_actor_weapon_bundle(mesh: Handle<Mesh>) -> ActorWeaponBundle {
                 translation: Vec3::ZERO,
                 ..Default::default()
             },
-            visibility: Visibility { is_visible: false },
+            // visibility: Visibility { is_visible: false },
             ..Default::default()
         },
         raycast_source: RayCastSource::<RaycastMarker>::new_transform_empty(),
     };
 }
 
-pub(crate) fn spawn_player_actor(
-    mut commands: Commands,
-    game_map: Res<GameMap>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
-) {
-    let ai_gym_state = ai_gym_state.lock().unwrap();
-    let actor_bundle = new_actor_bundle(game_map.clone(), "Player 1".to_string());
-    commands
-        .spawn_bundle(actor_bundle)
-        .insert(PlayerPerspective)
-        .with_children(|cell| {
-            cell.spawn_bundle(PointLightBundle {
-                point_light: PointLight {
-                    intensity: 500.0,
-                    shadows_enabled: false,
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
-
-            // Camera
-            cell.spawn_bundle(PerspectiveCameraBundle::<AIGymCamera> {
-                camera: Camera {
-                    target: ai_gym_state.__render_target.clone().unwrap(),
-                    ..default()
-                },
-                ..PerspectiveCameraBundle::new()
-            })
-            .insert(RayCastSource::<RaycastMarker>::new_transform_empty());
-
-            // Hitbox
-            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-            cell.spawn_bundle(PbrBundle {
-                mesh: mesh.clone(),
-                transform: Transform {
-                    rotation: Quat::from_rotation_y(std::f32::consts::PI),
-                    ..Default::default()
-                },
-                visibility: Visibility { is_visible: true },
-                ..Default::default()
-            })
-            .insert(RayCastMesh::<RaycastMarker>::default());
-        });
-}
-
 pub(crate) fn spawn_computer_actors(
     mut commands: Commands,
     game_map: Res<GameMap>,
     mut meshes: ResMut<Assets<Mesh>>,
-    game_sprites: Res<GameAssets>,
+    ai_gym_settings: Res<AIGymSettings>,
+    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let enemy_count = 64;
+    let ai_gym_state = ai_gym_state.lock().unwrap();
 
-    for _ in 0..enemy_count {
+    for i in 0..ai_gym_settings.num_agents {
         let actor_bundle = new_actor_bundle(game_map.clone(), Generator::default().next().unwrap());
 
         commands.spawn_bundle(actor_bundle).with_children(|cell| {
-            // Spawn soldier sprite
-            let mut mesh = Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7)));
-            let uv = game_sprites.guard_standing_animation[0][0].clone();
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-            let mesh = meshes.add(mesh);
-
-            let billboard_bundle = new_billboard_bundle(game_sprites.clone(), mesh);
-            cell.spawn_bundle(billboard_bundle);
-
             // Weapon
             let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
             let actor_weapon_bundle = new_actor_weapon_bundle(mesh);
             cell.spawn_bundle(actor_weapon_bundle);
+
+            // Model
+            let red_material_handle = materials.add(Color::RED.into());
+            let mesh = meshes.add(Mesh::from(shape::UVSphere {
+                sectors: 128,
+                stacks: 64,
+                ..default()
+            }));
+            cell.spawn_bundle(PbrBundle {
+                mesh,
+                material: red_material_handle.clone(),
+                transform: Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(10.0)),
+                ..Default::default()
+            });
+
+            // Camera
+            cell.spawn_bundle(Camera3dBundle {
+                camera: Camera {
+                    target: RenderTarget::Image(
+                        ai_gym_state.render_image_handles[i as usize].clone(),
+                    ),
+                    ..default()
+                },
+                camera_3d: Camera3d {
+                    clear_color: ClearColorConfig::Custom(Color::WHITE),
+                    ..default()
+                },
+                ..default()
+            });
         });
     }
 }

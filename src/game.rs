@@ -6,8 +6,8 @@ use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
 use heron::*;
 
 use crate::{
-    actions::*, actors::Actor, actors::*, animations::*, app_states::*, assets::*, control::*,
-    events::*, gym::*, hud::*, level::*, render::*, screens::*,
+    actions::*, actors::Actor, actors::*, app_states::*, assets::*, control::*, events::*, gym::*,
+    level::*, screens::*,
 };
 
 // ----------
@@ -25,7 +25,7 @@ pub(crate) struct RaycastMarker;
 
 fn clear_world(
     mut commands: Commands,
-    mut walls: Query<Entity, With<Wall>>,
+    walls: Query<Entity, With<Wall>>,
     mut players: Query<(Entity, &Actor)>,
     mut interface: Query<Entity, With<Interface>>,
 ) {
@@ -52,12 +52,13 @@ fn check_termination(
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
     ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_settings: Res<AIGymSettings>,
 ) {
-    let player_1 = player_query.iter().find(|p| p.name == "Player 1").unwrap();
+    let zero_health_actors = player_query.iter().filter(|p| p.health == 0).count() as u32;
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
-    if player_1.health == 0 || seconds_left <= 0 {
+    if ai_gym_settings.num_agents == zero_health_actors || seconds_left <= 0 {
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
         ai_gym_state.set_terminated(true);
@@ -92,8 +93,9 @@ pub(crate) fn build_game_app(mode: String) -> App {
         // Plugins
         .add_plugins(DefaultPlugins)
         .insert_resource(AIGymSettings {
-            width: 768,
-            height: 768,
+            width: 256,
+            height: 256,
+            num_agents: 16,
         })
         .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags>::new())))
         .insert_resource(RoundTimer(Timer::from_seconds(60.0, false)))
@@ -108,16 +110,10 @@ pub(crate) fn build_game_app(mode: String) -> App {
             SystemSet::on_enter(AppState::InGame)
                 .with_system(spawn_game_world.label("spawn_game_world"))
                 .with_system(
-                    spawn_player_actor
-                        .label("spawn_player_actor")
-                        .after("spawn_game_world"),
-                )
-                .with_system(
                     spawn_computer_actors
                         .label("spawn_computer_actors")
                         .after("spawn_game_world"),
                 )
-                .with_system(draw_gun.label("draw_gun"))
                 .with_system(
                     restart_round_timer
                         .label("restart_round_timer")
@@ -126,10 +122,6 @@ pub(crate) fn build_game_app(mode: String) -> App {
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
-                // Game Systems
-                .with_system(animate_gun)
-                .with_system(animate_enemy)
-                .with_system(render_billboards)
                 // Event handlers
                 .with_system(event_gun_shot)
                 .with_system(event_damage),
@@ -146,11 +138,9 @@ pub(crate) fn build_game_app(mode: String) -> App {
     if mode == "train" {
         app.add_state(AppState::InGame);
 
-        app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(update_hud)
                 .with_system(check_termination)
                 .with_system(turnbased_control_system_switch),
         );
@@ -171,11 +161,9 @@ pub(crate) fn build_game_app(mode: String) -> App {
     } else if mode == "playtest" {
         app.add_state(AppState::InGame);
 
-        app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(update_hud)
                 .with_system(check_termination)
                 .with_system(turnbased_control_system_switch),
         );
@@ -196,11 +184,9 @@ pub(crate) fn build_game_app(mode: String) -> App {
     } else {
         // This branch would panic on current version
         app.add_state(AppState::MainMenu);
-        app.add_system_set(SystemSet::on_enter(AppState::InGame).with_system(draw_hud));
         app.add_system_set(
             SystemSet::on_update(AppState::InGame)
                 // Game Systems
-                .with_system(update_hud)
                 .with_system(control_player_keyboard)
                 .with_system(check_termination),
         );

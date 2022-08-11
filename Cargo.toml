@@ -4,18 +4,18 @@ name = "bevystein"
 version = "0.0.1"
 
 [dependencies]
-bevy = {version = "0.7.0"}
-bevy_mod_raycast = {version = "0.4.0"}
-bevy_rl = {version = "0.0.5"}
+bevy = {version = "0.8.0"}
+bevy_mod_raycast = {version = "0.6.0"}
+bevy_rl = {path = "../bevy_rl"}
 bitflags = "1.3.2"
-clap = { version = "3.1.12", features = ["derive"] }
-crossbeam-channel = "0.5"
-heron = {version = "3.0.0", features = ["3d"]}
+clap = {version = "3.1.16", features = ["derive"]}
+crossbeam-channel = "0.5.6"
+heron = {git = "https://github.com/jcornaz/heron.git", rev = "5dd3db5", features = ["3d"]}
 image = "0.24.1"
-names = {version = "0.13.0", default-features = false}
-rand = "0.8.4"
-serde = "1.0.136"
-serde_json = "1.0.79"
+names = {version = "0.14.0", default-features = false}
+rand = "0.8.5"
+serde = "1.0.140"
+serde_json = "1.0.82"
 
 [profile.dev]
 opt-level = 3

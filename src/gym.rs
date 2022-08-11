@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_rl::state::AIGymState;
 use heron::*;
 
-use crate::{actions::*, actors::Actor, actors::*, app_states::*, control::*, events::*};
+use crate::{actions::*, actors::*, app_states::*, control::*, events::*};
 
 pub(crate) fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,

@@ -12,22 +12,18 @@ pub(crate) struct Interface;
 pub(crate) fn round_over(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
-    let text = Text::with_section(
+    let text = Text::from_section(
         "ROUND OVER",
         TextStyle {
             font_size: 75.0,
             font: font.clone(),
             color: Color::rgb(0.2, 0.2, 0.2),
         },
-        TextAlignment {
-            horizontal: HorizontalAlign::Center,
-            ..Default::default()
-        },
+        // TextAlignment {
+        //     horizontal: HorizontalAlign::Center,
+        //     ..Default::default()
+        // },
     );
-
-    commands
-        .spawn_bundle(UiCameraBundle::default())
-        .insert(Interface);
 
     commands
         .spawn_bundle(NodeBundle {
@@ -50,7 +46,7 @@ pub(crate) fn round_over(mut commands: Commands, asset_server: Res<AssetServer>)
                         size: Size::new(Val::Px(170.0), Val::Px(65.0)),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
-                        position: Rect {
+                        position: UiRect {
                             top: Val::Px(50.0),
                             ..Default::default()
                         },
@@ -61,14 +57,13 @@ pub(crate) fn round_over(mut commands: Commands, asset_server: Res<AssetServer>)
                 })
                 .with_children(|parent| {
                     parent.spawn_bundle(TextBundle {
-                        text: Text::with_section(
+                        text: Text::from_section(
                             "NEW ROUND",
                             TextStyle {
                                 font: font.clone(),
                                 font_size: 15.0,
                                 color: Color::rgb(0.9, 0.9, 0.9),
                             },
-                            Default::default(),
                         ),
                         ..Default::default()
                     });
@@ -88,22 +83,19 @@ pub(crate) fn main_screen(
 ) {
     let font = asset_server.load("Roboto-Regular.ttf");
 
-    let text = Text::with_section(
+    let text = Text::from_section(
         "ROYAL BATTLE BEVYSTEIN",
         TextStyle {
             font_size: 35.0,
             font: font.clone(),
             color: Color::rgb(0.2, 0.2, 0.2),
         },
-        TextAlignment {
-            horizontal: HorizontalAlign::Center,
-            ..Default::default()
-        },
+        // TextAlignment {
+        //     horizontal: HorizontalAlign::Center,
+        //     ..Default::default()
+        // },
     );
 
-    commands
-        .spawn_bundle(UiCameraBundle::default())
-        .insert(Interface);
     // root node
     commands
         .spawn_bundle(NodeBundle {
@@ -128,7 +120,7 @@ pub(crate) fn main_screen(
                         size: Size::new(Val::Px(170.0), Val::Px(65.0)),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
-                        position: Rect {
+                        position: UiRect {
                             top: Val::Px(50.0),
                             ..Default::default()
                         },
@@ -139,14 +131,13 @@ pub(crate) fn main_screen(
                 })
                 .with_children(|parent| {
                     parent.spawn_bundle(TextBundle {
-                        text: Text::with_section(
+                        text: Text::from_section(
                             "NEW ROUND",
                             TextStyle {
                                 font: font.clone(),
                                 font_size: 15.0,
                                 color: Color::rgb(0.9, 0.9, 0.9),
                             },
-                            Default::default(),
                         ),
                         ..Default::default()
                     });

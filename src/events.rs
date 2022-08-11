@@ -1,11 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
-use bevy_mod_raycast::{RayCastMesh, RayCastSource};
+use bevy_mod_raycast::RayCastSource;
 use bevy_rl::state::AIGymState;
 use heron::*;
 
-use crate::{actions::*, actors::Actor, animations::*, assets::*, game::*, hud::*, level::*};
+use crate::{actions::*, actors::Actor, game::*, level::*};
 
 #[derive(Debug)]
 pub(crate) struct EventGunShot {
@@ -27,8 +27,6 @@ pub(crate) struct EventNewRound;
 
 pub(crate) fn event_gun_shot(
     mut commands: Commands,
-
-    mut gun_sprite_query: Query<(&Weapon, &mut UiImage)>,
     shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
     player_query: Query<(Entity, &Children, &Actor)>,
     wall_query: Query<(Entity, &Wall)>,
@@ -36,21 +34,9 @@ pub(crate) fn event_gun_shot(
     mut gunshot_event: EventReader<EventGunShot>,
     mut event_damage: EventWriter<EventDamage>,
 
-    mut game_sprites: ResMut<GameAssets>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    _ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
-
     for gunshot_event in gunshot_event.iter() {
-        if gunshot_event.from == "Player 1".to_string() {
-            for (_, mut ui_image) in gun_sprite_query.iter_mut() {
-                game_sprites.gun_index = 1;
-                ui_image.0 = game_sprites.gun[game_sprites.gun_index as usize]
-                    .clone()
-                    .into();
-            }
-        }
-
         let result = shooting_query.iter().find(|(p, _)| {
             !player_query
                 .iter()
@@ -82,10 +68,6 @@ pub(crate) fn event_gun_shot(
                 to: enemy.name.clone(),
             });
 
-            if gunshot_event.from == "Player 1".to_string() {
-                ai_gym_state.set_score(10.0);
-            }
-
             player_hit = true;
             continue;
         }
@@ -94,10 +76,7 @@ pub(crate) fn event_gun_shot(
         if !player_hit {
             let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
             if wall_entity.is_some() {
-                if gunshot_event.from == "Player 1".to_string() {
-                    ai_gym_state.set_score(-10.0);
-                }
-                // commands.entity(hit_entity).despawn_recursive();
+                commands.entity(hit_entity).despawn_recursive();
             }
         }
     }
@@ -106,7 +85,6 @@ pub(crate) fn event_gun_shot(
 pub(crate) fn event_damage(
     mut commands: Commands,
     mut player_query: Query<(Entity, &Children, &mut Actor, &mut Velocity)>,
-    mut billboard_query: Query<(Entity, &mut EnemyAnimation, &Billboard)>,
     mut event_damage: EventReader<EventDamage>,
 ) {
     for damage_event in event_damage.iter() {
@@ -114,7 +92,7 @@ pub(crate) fn event_damage(
             continue;
         }
 
-        if let Some((entity, children, mut player, mut velocity)) = player_query
+        if let Some((entity, _, mut player, mut velocity)) = player_query
             .iter_mut()
             .find(|p| p.2.name == damage_event.to)
         {
@@ -125,29 +103,6 @@ pub(crate) fn event_damage(
             player.health -= 100;
 
             if player.health == 0 {
-                for c in children.iter() {
-                    if let Some((billboard_entity, mut animation, _)) =
-                        billboard_query.iter_mut().find(|c_| {
-                            return c_.0.id() == c.id();
-                        })
-                    {
-                        animation.frame = 1;
-                        animation.animation_type = AnimationType::Dying;
-
-                        velocity.clone_from(&Velocity::from_linear(Vec3::ZERO));
-
-                        commands
-                            .entity(billboard_entity)
-                            .insert(EnemyAnimation {
-                                frame: 0,
-                                handle: animation.handle.clone(),
-                                animation_type: AnimationType::Dying,
-                            })
-                            .insert(AnimationTimer(Timer::from_seconds(0.1, true)))
-                            .remove::<RayCastMesh<RaycastMarker>>();
-                    }
-                }
-
                 commands
                     .entity(entity)
                     .insert(Velocity::from_linear(Vec3::ZERO));

@@ -1,17 +1,14 @@
 mod actions;
 mod actors;
-mod animations;
 mod app_states;
 mod assets;
 mod control;
 mod events;
 mod game;
 mod gym;
-mod hud;
 mod level;
 mod map;
 mod physics;
-mod render;
 mod screens;
 
 use clap::Parser;
