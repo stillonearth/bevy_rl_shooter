@@ -86,15 +86,19 @@ pub(crate) fn event_damage(
     mut commands: Commands,
     mut player_query: Query<(Entity, &Children, &mut Actor, &mut Velocity)>,
     mut event_damage: EventReader<EventDamage>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     for damage_event in event_damage.iter() {
         if damage_event.from == damage_event.to {
             continue;
         }
 
-        if let Some((entity, _, mut player, mut velocity)) = player_query
+        let mut ai_gym_state = ai_gym_state.lock().unwrap();
+
+        if let Some((i, (entity, _, mut player, mut _velocity))) = player_query
             .iter_mut()
-            .find(|p| p.2.name == damage_event.to)
+            .enumerate()
+            .find(|(i, p)| p.2.name == damage_event.to)
         {
             if player.health == 0 {
                 continue;
@@ -114,6 +118,7 @@ pub(crate) fn event_damage(
                 .unwrap();
 
             hit_player.score += 10;
+            ai_gym_state.set_reward(i, 10.0);
         }
     }
 }

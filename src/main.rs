@@ -9,7 +9,6 @@ mod gym;
 mod level;
 mod map;
 mod physics;
-mod screens;
 
 use clap::Parser;
 

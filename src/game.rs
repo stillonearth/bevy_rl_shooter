@@ -7,7 +7,7 @@ use heron::*;
 
 use crate::{
     actions::*, actors::Actor, actors::*, app_states::*, assets::*, control::*, events::*, gym::*,
-    level::*, screens::*,
+    level::*,
 };
 
 // ----------
@@ -27,17 +27,12 @@ fn clear_world(
     mut commands: Commands,
     walls: Query<Entity, With<Wall>>,
     mut players: Query<(Entity, &Actor)>,
-    mut interface: Query<Entity, With<Interface>>,
 ) {
     // for e in walls.iter_mut() {
     //     commands.entity(e).despawn_recursive();
     // }
 
     for (e, _) in players.iter_mut() {
-        commands.entity(e).despawn_recursive();
-    }
-
-    for e in interface.iter_mut() {
         commands.entity(e).despawn_recursive();
     }
 }
@@ -58,12 +53,15 @@ fn check_termination(
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    let agents: Vec<&Actor> = player_query.iter().collect();
+    for i in 0..agents.len() {
+        if agents[i].health == 0 || seconds_left <= 0 {
+            ai_gym_state.set_terminated(i, true);
+        }
+    }
+
     if ai_gym_settings.num_agents == zero_health_actors || seconds_left <= 0 {
-        let mut ai_gym_state = ai_gym_state.lock().unwrap();
-
-        ai_gym_state.set_terminated(true);
-        ai_gym_state.send_step_result(true);
-
         app_state.overwrite_set(AppState::RoundOver).unwrap();
     }
 }
@@ -82,6 +80,12 @@ pub(crate) fn restart_round(
 pub(crate) fn build_game_app(mode: String) -> App {
     let mut app = App::new();
 
+    let gym_settings = AIGymSettings {
+        width: 256,
+        height: 256,
+        num_agents: 2,
+    };
+
     // Resources
     app.insert_resource(ClearColor(Color::WHITE))
         .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
@@ -92,19 +96,17 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_event::<EventNewRound>()
         // Plugins
         .add_plugins(DefaultPlugins)
-        .insert_resource(AIGymSettings {
-            width: 256,
-            height: 256,
-            num_agents: 16,
-        })
-        .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags>::new())))
-        .insert_resource(RoundTimer(Timer::from_seconds(60.0, false)))
-        .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
+        // bevy_rl initialization
+        .insert_resource(gym_settings.clone())
+        .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags>::new(
+            gym_settings.clone(),
+        ))))
+        .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
+        // game settings: round duration
+        .insert_resource(RoundTimer(Timer::from_seconds(60.0, false)))
         // State chain
-        .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(main_screen))
-        .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(button_system))
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
@@ -158,41 +160,6 @@ pub(crate) fn build_game_app(mode: String) -> App {
         );
 
         app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
-    } else if mode == "playtest" {
-        app.add_state(AppState::InGame);
-
-        app.add_system_set(
-            SystemSet::on_update(AppState::InGame)
-                // Game Systems
-                .with_system(check_termination)
-                .with_system(turnbased_control_system_switch),
-        );
-
-        app.add_system_set(
-            SystemSet::on_update(AppState::Control)
-                // Game Systems
-                .with_system(turnbased_control_player_keyboard)
-                .with_system(execute_reset_request),
-        );
-
-        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
-        app.add_system_set(
-            SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
-        );
-
-        app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
-    } else {
-        // This branch would panic on current version
-        app.add_state(AppState::MainMenu);
-        app.add_system_set(
-            SystemSet::on_update(AppState::InGame)
-                // Game Systems
-                .with_system(control_player_keyboard)
-                .with_system(check_termination),
-        );
-        app.add_system_set(SystemSet::on_enter(AppState::RoundOver).with_system(round_over));
-        app.add_system_set(SystemSet::on_update(AppState::RoundOver).with_system(button_system));
-        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
     }
 
     return app;

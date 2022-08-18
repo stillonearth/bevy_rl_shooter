@@ -15,6 +15,8 @@ use names::Generator;
 
 use crate::{actions::*, game::*, level::*, physics::*};
 
+// Components
+
 #[derive(Component, Clone)]
 pub(crate) struct Actor {
     pub position: (f32, f32),
@@ -24,8 +26,7 @@ pub(crate) struct Actor {
     pub score: u16,
 }
 
-#[derive(Component, Clone)]
-pub(crate) struct PlayerPerspective;
+// Bundles
 
 #[derive(Bundle)]
 pub(crate) struct ActorBundle {
@@ -40,7 +41,21 @@ pub(crate) struct ActorBundle {
     physics_material: PhysicMaterial,
 }
 
-fn new_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
+#[derive(Bundle)]
+struct ActorWeaponBundle {
+    #[bundle]
+    camera_bundle: Camera3dBundle,
+    raycast_source: RayCastSource<RaycastMarker>,
+}
+
+// Constructors
+
+fn new_agent_bundle(
+    game_map: GameMap,
+    actor_name: String,
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+) -> ActorBundle {
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
 
@@ -72,75 +87,61 @@ fn new_actor_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
     };
 }
 
-#[derive(Bundle)]
-struct ActorWeaponBundle {
-    #[bundle]
-    pbr_bundle: PbrBundle,
-    raycast_source: RayCastSource<RaycastMarker>,
-}
-
-fn new_actor_weapon_bundle(mesh: Handle<Mesh>) -> ActorWeaponBundle {
+fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
     return ActorWeaponBundle {
-        pbr_bundle: PbrBundle {
-            mesh: mesh,
-            transform: Transform {
-                translation: Vec3::ZERO,
-                ..Default::default()
+        camera_bundle: Camera3dBundle {
+            camera: Camera {
+                target: render_target,
+                ..default()
             },
-            // visibility: Visibility { is_visible: false },
-            ..Default::default()
+            camera_3d: Camera3d {
+                clear_color: ClearColorConfig::Custom(Color::WHITE),
+                ..default()
+            },
+            ..default()
         },
         raycast_source: RayCastSource::<RaycastMarker>::new_transform_empty(),
     };
 }
 
+// Systems
+
 pub(crate) fn spawn_computer_actors(
     mut commands: Commands,
     game_map: Res<GameMap>,
-    mut meshes: ResMut<Assets<Mesh>>,
     ai_gym_settings: Res<AIGymSettings>,
     ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+
+    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
 
+    let red_material_handle = materials.add(Color::RED.into());
+    let mesh = meshes.add(Mesh::from(shape::Cube { size: 1.0 }));
+
     for i in 0..ai_gym_settings.num_agents {
-        let actor_bundle = new_actor_bundle(game_map.clone(), Generator::default().next().unwrap());
+        let agent_bundle = new_agent_bundle(
+            game_map.clone(),
+            Generator::default().next().unwrap(),
+            mesh.clone(),
+            red_material_handle.clone(),
+        );
 
-        commands.spawn_bundle(actor_bundle).with_children(|cell| {
-            // Weapon
-            let mesh = meshes.add(Mesh::from(shape::Quad::new(Vec2::new(0.8, 1.7))));
-            let actor_weapon_bundle = new_actor_weapon_bundle(mesh);
-            cell.spawn_bundle(actor_weapon_bundle);
-
-            // Model
-            let red_material_handle = materials.add(Color::RED.into());
-            let mesh = meshes.add(Mesh::from(shape::UVSphere {
-                sectors: 128,
-                stacks: 64,
-                ..default()
-            }));
-            cell.spawn_bundle(PbrBundle {
-                mesh,
+        commands.spawn_bundle(agent_bundle).with_children(|cell| {
+            // Agent model
+            let pbr_bundle = PbrBundle {
+                mesh: mesh.clone(),
                 material: red_material_handle.clone(),
-                transform: Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(10.0)),
-                ..Default::default()
-            });
+                ..default()
+            };
+            cell.spawn_bundle(pbr_bundle);
 
             // Camera
-            cell.spawn_bundle(Camera3dBundle {
-                camera: Camera {
-                    target: RenderTarget::Image(
-                        ai_gym_state.render_image_handles[i as usize].clone(),
-                    ),
-                    ..default()
-                },
-                camera_3d: Camera3d {
-                    clear_color: ClearColorConfig::Custom(Color::WHITE),
-                    ..default()
-                },
-                ..default()
-            });
+            let agent_camera_bundle = new_agent_camera_bundle(RenderTarget::Image(
+                ai_gym_state.render_image_handles[i as usize].clone(),
+            ));
+            cell.spawn_bundle(agent_camera_bundle);
         });
     }
 }
