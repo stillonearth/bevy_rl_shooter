@@ -53,8 +53,6 @@ struct ActorWeaponBundle {
 fn new_agent_bundle(
     game_map: GameMap,
     actor_name: String,
-    mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
 ) -> ActorBundle {
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
@@ -92,6 +90,7 @@ fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
         camera_bundle: Camera3dBundle {
             camera: Camera {
                 target: render_target,
+                priority: -1,
                 ..default()
             },
             camera_3d: Camera3d {
@@ -124,8 +123,6 @@ pub(crate) fn spawn_computer_actors(
         let agent_bundle = new_agent_bundle(
             game_map.clone(),
             Generator::default().next().unwrap(),
-            mesh.clone(),
-            red_material_handle.clone(),
         );
 
         commands.spawn_bundle(agent_bundle).with_children(|cell| {

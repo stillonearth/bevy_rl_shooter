@@ -1,7 +1,6 @@
 mod actions;
 mod actors;
 mod app_states;
-mod assets;
 mod control;
 mod events;
 mod game;

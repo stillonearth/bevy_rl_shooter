@@ -88,7 +88,7 @@ class VisualQNetwork(nn.Module):
     def forward(self, x):
 
         if len(x.shape) != 4:
-            x = x.view(-1, 3, 84, 84)
+            x = x.view(-1, 3, self.w, self.h)
 
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))

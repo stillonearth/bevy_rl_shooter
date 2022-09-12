@@ -4,10 +4,10 @@ use bevy::prelude::*;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
 use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
 use heron::*;
+// use bevy_inspector_egui::WorldInspectorPlugin;
 
 use crate::{
-    actions::*, actors::Actor, actors::*, app_states::*, assets::*, control::*, events::*, gym::*,
-    level::*,
+    actions::*, actors::Actor, actors::*, app_states::*, control::*, events::*, gym::*, level::*,
 };
 
 // ----------
@@ -25,7 +25,7 @@ pub(crate) struct RaycastMarker;
 
 fn clear_world(
     mut commands: Commands,
-    walls: Query<Entity, With<Wall>>,
+    _walls: Query<Entity, With<Wall>>,
     mut players: Query<(Entity, &Actor)>,
 ) {
     // for e in walls.iter_mut() {
@@ -74,6 +74,7 @@ pub(crate) fn restart_round(
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
     ai_gym_state.reset();
     physics_time.resume();
+
     app_state.set(AppState::InGame).unwrap();
 }
 
@@ -81,9 +82,9 @@ pub(crate) fn build_game_app(mode: String) -> App {
     let mut app = App::new();
 
     let gym_settings = AIGymSettings {
-        width: 256,
-        height: 256,
-        num_agents: 2,
+        width: 128,
+        height: 128,
+        num_agents: 16,
     };
 
     // Resources
@@ -96,6 +97,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_event::<EventNewRound>()
         // Plugins
         .add_plugins(DefaultPlugins)
+        // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // bevy_rl initialization
@@ -128,15 +130,10 @@ pub(crate) fn build_game_app(mode: String) -> App {
                 .with_system(event_gun_shot)
                 .with_system(event_damage),
         )
-        .add_system_set(
-            SystemSet::on_enter(AppState::Reset)
-                .with_system(clear_world.label("clear_world"))
-                .with_system(restart_round.after("clear_world")),
-        )
+        .add_system_set(SystemSet::on_enter(AppState::Reset).with_system(clear_world))
+        .add_system_set(SystemSet::on_update(AppState::Reset).with_system(restart_round))
         // Initialize Resources
-        .init_resource::<GameMap>()
-        .init_resource::<GameAssets>();
-
+        .init_resource::<GameMap>();
     if mode == "train" {
         app.add_state(AppState::InGame);
 

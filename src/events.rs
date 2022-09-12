@@ -98,7 +98,7 @@ pub(crate) fn event_damage(
         if let Some((i, (entity, _, mut player, mut _velocity))) = player_query
             .iter_mut()
             .enumerate()
-            .find(|(i, p)| p.2.name == damage_event.to)
+            .find(|(_, p)| p.2.name == damage_event.to)
         {
             if player.health == 0 {
                 continue;
