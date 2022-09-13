@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
+use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
 use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
 use heron::*;
-// use bevy_inspector_egui::WorldInspectorPlugin;
 
 use crate::{
     actions::*, actors::Actor, actors::*, app_states::*, control::*, events::*, gym::*, level::*,
@@ -82,8 +82,8 @@ pub(crate) fn build_game_app(mode: String) -> App {
     let mut app = App::new();
 
     let gym_settings = AIGymSettings {
-        width: 128,
-        height: 128,
+        width: 256,
+        height: 256,
         num_agents: 16,
     };
 
@@ -97,7 +97,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_event::<EventNewRound>()
         // Plugins
         .add_plugins(DefaultPlugins)
-        // .add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // bevy_rl initialization

@@ -68,13 +68,14 @@ pub(crate) fn spawn_game_world(
             ],
         });
 
+    let wall_mesh = meshes.add(Mesh::from(shape::Cube { size: 2.0 }));
     let walls_iter: Vec<WallBundle> = game_map
         .walls
         .iter()
         .map(|(x, z)| {
             return WallBundle {
                 pbr_pundle: PbrBundle {
-                    mesh: meshes.add(Mesh::from(shape::Cube { size: 2.0 })),
+                    mesh: wall_mesh.clone(),
                     material: white_material_handle.clone(),
                     transform: Transform::from_translation(Vec3::new(*x as f32, 1.0, *z as f32)),
                     global_transform: GlobalTransform::identity(),

@@ -32,13 +32,13 @@ pub(crate) struct Actor {
 pub(crate) struct ActorBundle {
     collision_layers: CollisionLayers,
     collision_shape: CollisionShape,
-    global_transform: GlobalTransform,
     actor: Actor,
     rigid_body: RigidBody,
     rotation_constraints: RotationConstraints,
-    transform: Transform,
     velocity: Velocity,
     physics_material: PhysicMaterial,
+    #[bundle]
+    spacial_bundle: SpatialBundle,
 }
 
 #[derive(Bundle)]
@@ -49,11 +49,7 @@ struct ActorWeaponBundle {
 }
 
 // Constructors
-
-fn new_agent_bundle(
-    game_map: GameMap,
-    actor_name: String,
-) -> ActorBundle {
+fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
     let mut rng = thread_rng();
     let pos = game_map.empty_space.choose(&mut rng).unwrap();
 
@@ -66,17 +62,20 @@ fn new_agent_bundle(
     };
 
     return ActorBundle {
-        transform: Transform {
-            translation: Vec3::new(actor.position.0 as f32, 1.0, actor.position.1 as f32),
-            rotation: Quat::from_rotation_y(actor.rotation),
+        spacial_bundle: SpatialBundle {
+            transform: Transform {
+                translation: Vec3::new(actor.position.0 as f32, 1.0, actor.position.1 as f32),
+                rotation: Quat::from_rotation_y(actor.rotation),
+                ..Default::default()
+            },
+            visibility: Visibility { is_visible: true },
             ..Default::default()
         },
-        global_transform: GlobalTransform::identity(),
         velocity: Velocity::from_linear(Vec3::ZERO),
         collision_shape: CollisionShape::Sphere { radius: 1.0 },
         rigid_body: RigidBody::Dynamic,
         physics_material: PhysicMaterial {
-            density: 200.0,
+            density: 1.0,
             ..Default::default()
         },
         collision_layers: CollisionLayers::new(Layer::Player, Layer::World),
@@ -104,7 +103,6 @@ fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
 }
 
 // Systems
-
 pub(crate) fn spawn_computer_actors(
     mut commands: Commands,
     game_map: Res<GameMap>,
@@ -115,25 +113,24 @@ pub(crate) fn spawn_computer_actors(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
-
-    let red_material_handle = materials.add(Color::RED.into());
-    let mesh = meshes.add(Mesh::from(shape::Cube { size: 1.0 }));
+    let material = materials.add(Color::RED.into());
+    let mesh = meshes.add(Mesh::from(shape::UVSphere {
+        sectors: 128,
+        stacks: 64,
+        ..default()
+    }));
 
     for i in 0..ai_gym_settings.num_agents {
-        let agent_bundle = new_agent_bundle(
-            game_map.clone(),
-            Generator::default().next().unwrap(),
-        );
+        let agent_bundle = new_agent_bundle(game_map.clone(), Generator::default().next().unwrap());
 
         commands.spawn_bundle(agent_bundle).with_children(|cell| {
             // Agent model
-            let pbr_bundle = PbrBundle {
+            cell.spawn_bundle(PbrBundle {
                 mesh: mesh.clone(),
-                material: red_material_handle.clone(),
+                material: material.clone(),
+                transform: Transform::from_scale(Vec3::splat(0.33)),
                 ..default()
-            };
-            cell.spawn_bundle(pbr_bundle);
-
+            });
             // Camera
             let agent_camera_bundle = new_agent_camera_bundle(RenderTarget::Image(
                 ai_gym_state.render_image_handles[i as usize].clone(),
