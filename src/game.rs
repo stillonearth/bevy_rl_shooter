@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
-use bevy_inspector_egui::WorldInspectorPlugin;
+// use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
 use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
 use heron::*;
@@ -25,7 +25,7 @@ pub(crate) struct RaycastMarker;
 
 fn clear_world(
     mut commands: Commands,
-    _walls: Query<Entity, With<Wall>>,
+    mut walls: Query<Entity, &Wall>,
     mut players: Query<(Entity, &Actor)>,
 ) {
     // for e in walls.iter_mut() {
@@ -63,6 +63,9 @@ fn check_termination(
 
     if ai_gym_settings.num_agents == zero_health_actors || seconds_left <= 0 {
         app_state.overwrite_set(AppState::RoundOver).unwrap();
+
+        let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
+        ai_gym_state.send_step_result(results);
     }
 }
 
@@ -97,7 +100,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_event::<EventNewRound>()
         // Plugins
         .add_plugins(DefaultPlugins)
-        .add_plugin(WorldInspectorPlugin::new())
+        // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(PhysicsPlugin::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // bevy_rl initialization
@@ -147,7 +150,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
         app.add_system_set(
             SystemSet::on_update(AppState::Control)
                 // Game Systems
-                .with_system(turnbased_text_control_system)
+                .with_system(execute_step_request)
                 .with_system(execute_reset_request),
         );
 

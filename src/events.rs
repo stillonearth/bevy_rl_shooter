@@ -29,7 +29,7 @@ pub(crate) fn event_gun_shot(
     mut commands: Commands,
     shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
     player_query: Query<(Entity, &Children, &Actor)>,
-    wall_query: Query<(Entity, &Wall)>,
+    _wall_query: Query<(Entity, &Wall)>,
 
     mut gunshot_event: EventReader<EventGunShot>,
     mut event_damage: EventWriter<EventDamage>,
@@ -73,12 +73,12 @@ pub(crate) fn event_gun_shot(
         }
 
         // despawn a wall
-        if !player_hit {
-            let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
-            if wall_entity.is_some() {
-                commands.entity(hit_entity).despawn_recursive();
-            }
-        }
+        // if !player_hit {
+        //     let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
+        //     if wall_entity.is_some() {
+        //         commands.entity(hit_entity).despawn_recursive();
+        //     }
+        // }
     }
 }
 
@@ -109,7 +109,9 @@ pub(crate) fn event_damage(
             if player.health == 0 {
                 commands
                     .entity(entity)
-                    .insert(Velocity::from_linear(Vec3::ZERO));
+                    .insert(Velocity::from_linear(Vec3::ZERO))
+                    .insert(Visibility { is_visible: false })
+                    .insert(Transform::from_translation(Vec3::new(0.0, -1000.0, 0.0)));
             }
 
             let (_, _, mut hit_player, _) = player_query

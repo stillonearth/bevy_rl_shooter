@@ -22,6 +22,10 @@ pub(crate) fn control_agents(
     for (i, (mut velocity, transform, actor)) in agent_movement_query.iter_mut().enumerate() {
         *velocity = Velocity::from_linear(Vec3::ZERO);
 
+        if actor.health == 0 {
+            continue;
+        }
+
         if agent_actions[i].is_some() {
             let agent_actions = agent_actions[i].unwrap();
 

@@ -1,5 +1,6 @@
 use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::render::camera::RenderTarget;
+use bevy_mod_raycast::RayCastMesh;
 use bevy_rl::AIGymSettings;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
@@ -130,7 +131,8 @@ pub(crate) fn spawn_computer_actors(
                 material: material.clone(),
                 transform: Transform::from_scale(Vec3::splat(0.33)),
                 ..default()
-            });
+            })
+            .insert(RayCastMesh::<RaycastMarker>::default());
             // Camera
             let agent_camera_bundle = new_agent_camera_bundle(RenderTarget::Image(
                 ai_gym_state.render_image_handles[i as usize].clone(),

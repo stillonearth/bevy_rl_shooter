@@ -39,7 +39,7 @@ pub(crate) fn spawn_game_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !walls.is_empty() {
+    if walls.iter().len() > 0 {
         return;
     }
 

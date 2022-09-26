@@ -31,13 +31,15 @@ pub(crate) fn turnbased_control_system_switch(
         app_state.overwrite_push(AppState::Control).unwrap();
         physics_time.pause();
 
-        let ai_gym_state = ai_gym_state.lock().unwrap();
-        let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
-        ai_gym_state.send_step_result(results);
+        {
+            let ai_gym_state = ai_gym_state.lock().unwrap();
+            let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
+            ai_gym_state.send_step_result(results);
+        }
     }
 }
 
-pub(crate) fn turnbased_text_control_system(
+pub(crate) fn execute_step_request(
     agent_movement_q: Query<(&mut heron::prelude::Velocity, &mut Transform, &Actor)>,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
