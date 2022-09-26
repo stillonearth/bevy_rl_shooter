@@ -1,7 +1,5 @@
 # Minimal FPS Game Gym Environment with Bevy and DQN Agent
 
-https://user-images.githubusercontent.com/97428129/166922885-40b00260-00c5-490e-9eaf-4561a597d459.mp4
-
 **Sergei Surovtsev** <<ssurovsev@gmail.com>>
 <br />
 February 2022
@@ -11,7 +9,7 @@ This project is an attempt to build minimal FPS game with Bevy Game Engine (0.7.
 
 ## Project Goals
 
-* Implementing minimal FPS environment with Bevy Game Engine (0.7.0)
+* Implementing minimal FPS environment with Bevy Game Engine (0.8.0)
 
 ## Technical Formulation of Problem
 
