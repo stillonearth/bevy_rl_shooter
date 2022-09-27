@@ -35,7 +35,6 @@ pub(crate) fn turnbased_control_system_switch(
             let ai_gym_state = ai_gym_state.lock().unwrap();
             let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
             ai_gym_state.send_step_result(results);
-            println!("Sent step result");
         }
     }
 }
@@ -56,7 +55,6 @@ pub(crate) fn execute_step_request(
     }
 
     let unparsed_actions = ai_gym_state.receive_action_strings();
-    println!("Recieved control");
     let mut actions: Vec<Option<PlayerActionFlags>> =
         (0..ai_gym_settings.num_agents).map(|_| None).collect();
 
