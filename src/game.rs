@@ -56,16 +56,13 @@ fn check_termination(
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
     let agents: Vec<&Actor> = player_query.iter().collect();
     for i in 0..agents.len() {
-        if agents[i].health == 0 || seconds_left <= 0 {
+        if agents[i].health == 0 {
             ai_gym_state.set_terminated(i, true);
         }
     }
 
     if ai_gym_settings.num_agents == zero_health_actors || seconds_left <= 0 {
         app_state.overwrite_set(AppState::RoundOver).unwrap();
-
-        let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
-        ai_gym_state.send_step_result(results);
     }
 }
 

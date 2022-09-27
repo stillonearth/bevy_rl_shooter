@@ -4,11 +4,23 @@ import numpy as np
 import json
 
 from PIL import Image, ImageOps
+from gym import spaces
 
 
 API_SCREEN = 'http://127.0.0.1:7878/screen.png'
 API_STEP = 'http://127.0.0.1:7878/step'
 API_RESET = 'http://127.0.0.1:7878/reset'
+
+ACTION_MAP = {
+    0: "IDLE",
+    1: "TURN_LEFT",
+    2: "TURN_RIGHT",
+    3: "LEFT",
+    4: "RIGHT",
+    5: "FORWARD",
+    6: "BACKWARD",
+    7: "SHOOT",
+}
 
 
 class Environment:
@@ -17,27 +29,45 @@ class Environment:
         self.executable_path = executable_path
         self.size = size
         self.number_of_agents = number_of_agents
+        self.observation_space = spaces.Box(
+            low=0, high=255, shape=(size[0], size[1], 1), dtype=np.uint8)
+        self.action_space = spaces.Discrete(8)
+        self.metadata = {}
+        self.images = []
+        self.num_envs = number_of_agents
 
-    def reset(self):
-        # print('reseting environment')
-        requests.post(API_RESET, timeout=5)
-        # print('reseting environment ok')
-        return
+    def env_is_wrapped(self, wrapper_class, indices=None):
+        return True
+
+    def reset(self, seed=None):
+        requests.post(API_RESET, timeout=10)
+        return self.visual_observations(), None
+
+    def get_images(self):
+        return self.images
 
     def step(self, actions):
-        actions = [{"action": a} for a in actions]
+        actions = [{"action": ACTION_MAP[a]} for a in actions]
         action_json = json.dumps(actions, indent=4)
-        # print('making step')
-        response = requests.post(API_STEP, action_json, timeout=5)
-        # print('making step ok')
-        return (response.json(), self.visual_observations())
+        response = requests.get(
+            API_STEP, params={'payload': action_json}, timeout=10)
+
+        state = response.json()
+        observation = self.visual_observations()
+
+        reward = [r['reward'] for r in state]
+        terminated = [r['is_terminated'] for r in state]
+        truncated = None
+        info = None
+
+        return observation, reward, terminated, truncated, info
 
     def visual_observations(self):
         # print('getting screen image')
         image = imageio.imread(API_SCREEN)
         image = Image.fromarray(image.astype('uint8'), 'RGBA')
 
-        images = []
+        self.images = []
         for n in range(0, self.number_of_agents):
             crop_rectangle = (
                 n*(image.width/self.number_of_agents),
@@ -48,6 +78,6 @@ class Environment:
 
             cropped_image = image.crop(crop_rectangle)
             cropped_image.thumbnail(self.size)
-            images.append(np.asarray(ImageOps.grayscale(cropped_image)))
-        # print('getting screen image ok')
-        return images
+            self.images.append(np.asarray(ImageOps.grayscale(cropped_image)))
+
+        return self.images
