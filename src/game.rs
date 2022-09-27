@@ -28,9 +28,9 @@ fn clear_world(
     mut walls: Query<Entity, &Wall>,
     mut players: Query<(Entity, &Actor)>,
 ) {
-    // for e in walls.iter_mut() {
-    //     commands.entity(e).despawn_recursive();
-    // }
+    for e in walls.iter_mut() {
+        commands.entity(e).despawn_recursive();
+    }
 
     for (e, _) in players.iter_mut() {
         commands.entity(e).despawn_recursive();

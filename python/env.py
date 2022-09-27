@@ -30,21 +30,14 @@ class Environment:
         self.size = size
         self.number_of_agents = number_of_agents
         self.observation_space = spaces.Box(
-            low=0, high=255, shape=(size[0], size[1], 1), dtype=np.uint8)
+            low=0, high=255, shape=(self.number_of_agents, size[0], size[1], 1), dtype=np.uint8)
         self.action_space = spaces.Discrete(8)
         self.metadata = {}
         self.images = []
-        self.num_envs = number_of_agents
-
-    def env_is_wrapped(self, wrapper_class, indices=None):
-        return True
 
     def reset(self, seed=None):
         requests.post(API_RESET, timeout=10)
         return self.visual_observations(), None
-
-    def get_images(self):
-        return self.images
 
     def step(self, actions):
         actions = [{"action": ACTION_MAP[a]} for a in actions]
@@ -63,7 +56,6 @@ class Environment:
         return observation, reward, terminated, truncated, info
 
     def visual_observations(self):
-        # print('getting screen image')
         image = imageio.imread(API_SCREEN)
         image = Image.fromarray(image.astype('uint8'), 'RGBA')
 

@@ -39,10 +39,6 @@ pub(crate) fn spawn_game_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if walls.iter().len() > 0 {
-        return;
-    }
-
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
@@ -50,23 +46,26 @@ pub(crate) fn spawn_game_world(
 
     let white_material_handle = materials.add(Color::WHITE.into());
 
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: mesh.clone(),
-            material: white_material_handle.clone(),
-            ..Default::default()
-        })
-        .insert(RigidBody::Static)
-        .insert(CollisionShape::HeightField {
-            size: Vec2::new((100 * 255) as f32, (100 * 255) as f32),
-            heights: vec![
-                vec![100.5, 0.8, 0., 0., 3000.0],
-                vec![0.8, 0.2, 0., 0., 300.0],
-                vec![0., 0.5, 0., 0., 300.0],
-                vec![0., 0., 0.6, 0., 300.0],
-                vec![300., 300., 300., 300., 300.0],
-            ],
-        });
+    // spawn floor only once
+    if walls.iter().len() == 0 {
+        commands
+            .spawn_bundle(PbrBundle {
+                mesh: mesh.clone(),
+                material: white_material_handle.clone(),
+                ..Default::default()
+            })
+            .insert(RigidBody::Static)
+            .insert(CollisionShape::HeightField {
+                size: Vec2::new((100 * 255) as f32, (100 * 255) as f32),
+                heights: vec![
+                    vec![100.5, 0.8, 0., 0., 3000.0],
+                    vec![0.8, 0.2, 0., 0., 300.0],
+                    vec![0., 0.5, 0., 0., 300.0],
+                    vec![0., 0., 0.6, 0., 300.0],
+                    vec![300., 300., 300., 300., 300.0],
+                ],
+            });
+    }
 
     let wall_mesh = meshes.add(Mesh::from(shape::Cube { size: 2.0 }));
     let walls_iter: Vec<WallBundle> = game_map

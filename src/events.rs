@@ -29,12 +29,10 @@ pub(crate) fn event_gun_shot(
     mut commands: Commands,
     shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
     player_query: Query<(Entity, &Children, &Actor)>,
-    _wall_query: Query<(Entity, &Wall)>,
+    wall_query: Query<(Entity, &Wall)>,
 
     mut gunshot_event: EventReader<EventGunShot>,
     mut event_damage: EventWriter<EventDamage>,
-
-    _ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
 ) {
     for gunshot_event in gunshot_event.iter() {
         let result = shooting_query.iter().find(|(p, _)| {
@@ -73,12 +71,12 @@ pub(crate) fn event_gun_shot(
         }
 
         // despawn a wall
-        // if !player_hit {
-        //     let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
-        //     if wall_entity.is_some() {
-        //         commands.entity(hit_entity).despawn_recursive();
-        //     }
-        // }
+        if !player_hit {
+            let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
+            if wall_entity.is_some() {
+                commands.entity(hit_entity).despawn_recursive();
+            }
+        }
     }
 }
 
