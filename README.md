@@ -1,41 +1,7 @@
-# Minimal FPS Game Gym Environment with Bevy and DQN Agent
+# Multi-Agent Minimal FPS Game Gym Environment with Bevy (v0.8) and bevy_rl
 
-**Sergei Surovtsev** <<ssurovsev@gmail.com>>
-<br />
-February 2022
+https://user-images.githubusercontent.com/97428129/192408835-3a2857bf-ee6a-4213-b469-d0af0a1fc75b.mp4
+
 ## Project Description
 
-This project is an attempt to build minimal FPS game with Bevy Game Engine (0.7.0) and create AI agent to play it competitively with human player.
-
-## Project Goals
-
-* Implementing minimal FPS environment with Bevy Game Engine (0.8.0)
-
-## Technical Formulation of Problem
-
-* Implement FPS Gym Environment
-* Train an AI agent
-
-## Training Environment
-
-Environment spawns a http server for programmatic interaction. API is available on http://localhost:7878/
-
-Following API handles are exposed:
-
-* **[GET]** `http://localhost:7878/screen.png` — A first-person view of the world by the agent
-* **[POST]** `http://localhost:7878/step` — Perform a step and evaluate reward 
-    <br />*POST BODY*: ACTION 
-    <br />*RESPONSE*: ```json {is_terminated: false, reward: 10.0}```
-
-## Mathematical Models
-
-https://github.com/stillonearth/BevyStein/blob/main/python/DQN.ipynb contains DQN implementation from previous work [1].
-
-## Acknowledgements
-
-* Inspired by [rustenstein](https://github.com/AdRoll/rustenstein) by AdRoll. Map & texture parsing code grabbed from it.
-* Game uses assets from wolfenstein 3D. Open Sourced by John Carmack https://github.com/id-Software/wolf3d
-
-## References
-
-1. **Using Deep-Q-Networks (DQN) for solving Unity ML Agents Banana Collector Discreet Control Environment and Evaluating DQN Improvements**, Sergei Surovtsev, July 2019, https://github.com/cwiz/DRLND-Project-Navigation/blob/master/WRITEUP.md
+This project is an attempt to build minimal multi-agent FPS game with Bevy Game Engine (0.8) and train AI agent with DQN.
