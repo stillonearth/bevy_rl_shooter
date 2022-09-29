@@ -11,6 +11,13 @@ This project is an attempt to build minimal multi-agent FPS game with Bevy Game 
 - Create a multi-agent gym environment
 - Create an example project for bevy_rl
 
+## Environment description
+
+- Deathmatch free-for-all
+- Agents spawn as red spheres
+- 1-hit kill
+- +10 reward on kill
+
 ## Implementation details
 
 - [bevy])https://bevyengine.org/) is a free game engine written in Rust
