@@ -20,7 +20,7 @@ This project is an attempt to build minimal multi-agent FPS game with Bevy Game 
 
 ## Implementation details
 
-- [bevy])https://bevyengine.org/) is a free game engine written in Rust
+- [bevy](https://bevyengine.org/) is a free game engine written in Rust
 - [bevy_rl](https://github.com/stillonearth/bevy_rl) is a plugin for Bevy that implements OpenAI Gym interface
 
 ## Usage
