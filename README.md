@@ -25,6 +25,7 @@ This project is an attempt to build minimal multi-agent FPS game with Bevy Game 
 
 ## Usage
 
+- follow bevy's [setup guide](https://bevyengine.org/learn/book/getting-started/setup/) to set up Rust
 - build an environment with `cargo build --release`; run environment with `./target/release/bevystein --mode train`
 - `python/env.py` implements a python wrapper for an environment
 - `python/DQN.ipynb` is a basic DQN agent trained on the environment
