@@ -25,6 +25,6 @@ This project is an attempt to build minimal multi-agent FPS game with Bevy Game 
 
 ## Usage
 
-- build an environment with `cargo build --release`; run environment with `./target/release/bevystein`
+- build an environment with `cargo build --release`; run environment with `./target/release/bevystein --mode train`
 - `python/env.py` implements a python wrapper for an environment
 - `python/DQN.ipynb` is a basic DQN agent trained on the environment
