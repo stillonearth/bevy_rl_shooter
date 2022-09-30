@@ -12,9 +12,9 @@ mod physics;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about, long_about = None, )]
 struct Args {
-    #[clap(short, long)]
+    #[clap(short, long, default_value = "train")]
     mode: String,
 }
 

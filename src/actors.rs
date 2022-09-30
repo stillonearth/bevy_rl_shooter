@@ -5,6 +5,7 @@ use bevy_rl::AIGymSettings;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
@@ -14,17 +15,17 @@ use heron::*;
 
 use names::Generator;
 
+use crate::gym::EnvironmentState;
 use crate::{actions::*, game::*, level::*, physics::*};
 
 // Components
 
-#[derive(Component, Clone)]
-pub(crate) struct Actor {
+#[derive(Component, Clone, Serialize)]
+pub struct Actor {
     pub position: (f32, f32),
     pub rotation: f32,
     pub name: String,
     pub health: u16,
-    pub score: u16,
 }
 
 // Bundles
@@ -59,7 +60,6 @@ fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
         rotation: rng.gen_range(0.0..std::f32::consts::PI * 2.0),
         name: actor_name,
         health: 100,
-        score: 0,
     };
 
     return ActorBundle {
@@ -80,7 +80,7 @@ fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
             ..Default::default()
         },
         collision_layers: CollisionLayers::new(Layer::Player, Layer::World),
-        actor: actor,
+        actor,
         rotation_constraints: RotationConstraints::lock(),
     };
 }
@@ -108,12 +108,12 @@ pub(crate) fn spawn_computer_actors(
     mut commands: Commands,
     game_map: Res<GameMap>,
     ai_gym_settings: Res<AIGymSettings>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
 
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let ai_gym_state = ai_gym_state.lock().unwrap();
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
     let material = materials.add(Color::RED.into());
     let mesh = meshes.add(Mesh::from(shape::UVSphere {
         sectors: 128,
@@ -121,9 +121,11 @@ pub(crate) fn spawn_computer_actors(
         ..default()
     }));
 
+    let mut actors: Vec<Actor> = Vec::new();
     for i in 0..ai_gym_settings.num_agents {
         let agent_bundle = new_agent_bundle(game_map.clone(), Generator::default().next().unwrap());
 
+        actors.push(agent_bundle.actor.clone());
         commands.spawn_bundle(agent_bundle).with_children(|cell| {
             // Agent model
             cell.spawn_bundle(PbrBundle {
@@ -140,4 +142,9 @@ pub(crate) fn spawn_computer_actors(
             cell.spawn_bundle(agent_camera_bundle);
         });
     }
+    let env_state = EnvironmentState {
+        map: game_map.clone(),
+        actors: actors,
+    };
+    ai_gym_state.set_env_state(env_state);
 }

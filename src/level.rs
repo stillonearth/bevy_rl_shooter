@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 use crate::{game::*, map, physics::*};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub(crate) struct GameMap {
+pub struct GameMap {
     pub empty_space: Vec<(usize, usize)>,
     pub walls: Vec<(usize, usize)>,
 }
 
-impl FromWorld for GameMap {
-    fn from_world(_: &mut World) -> Self {
+impl Default for GameMap {
+    fn default() -> Self {
         let deserialized: GameMap = serde_json::from_str(&map::JSON).unwrap();
         return deserialized;
     }
@@ -57,13 +57,7 @@ pub(crate) fn spawn_game_world(
             .insert(RigidBody::Static)
             .insert(CollisionShape::HeightField {
                 size: Vec2::new((100 * 255) as f32, (100 * 255) as f32),
-                heights: vec![
-                    vec![100.5, 0.8, 0., 0., 3000.0],
-                    vec![0.8, 0.2, 0., 0., 300.0],
-                    vec![0., 0.5, 0., 0., 300.0],
-                    vec![0., 0., 0.6, 0., 300.0],
-                    vec![300., 300., 300., 300., 300.0],
-                ],
+                heights: vec![vec![0.0, 0.0, 0.0, 0.0, 0.0], vec![0.0, 0.0, 0.0, 0.0, 0.0]],
             });
     }
 

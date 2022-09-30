@@ -46,7 +46,7 @@ fn check_termination(
     time: Res<Time>,
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
     ai_gym_settings: Res<AIGymSettings>,
 ) {
     let zero_health_actors = player_query.iter().filter(|p| p.health == 0).count() as u32;
@@ -68,7 +68,7 @@ fn check_termination(
 
 pub(crate) fn restart_round(
     mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
     mut physics_time: ResMut<PhysicsTime>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
@@ -102,10 +102,11 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // bevy_rl initialization
         .insert_resource(gym_settings.clone())
-        .insert_resource(Arc::new(Mutex::new(AIGymState::<PlayerActionFlags>::new(
-            gym_settings.clone(),
-        ))))
-        .add_plugin(AIGymPlugin::<PlayerActionFlags>::default())
+        .insert_resource(Arc::new(Mutex::new(AIGymState::<
+            PlayerActionFlags,
+            EnvironmentState,
+        >::new(gym_settings.clone()))))
+        .add_plugin(AIGymPlugin::<PlayerActionFlags, EnvironmentState>::default())
         // game settings: round duration
         .insert_resource(RoundTimer(Timer::from_seconds(60.0, false)))
         // State chain
@@ -113,16 +114,8 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
                 .with_system(spawn_game_world.label("spawn_game_world"))
-                .with_system(
-                    spawn_computer_actors
-                        .label("spawn_computer_actors")
-                        .after("spawn_game_world"),
-                )
-                .with_system(
-                    restart_round_timer
-                        .label("restart_round_timer")
-                        .after("spawn_game_world"),
-                ),
+                .with_system(spawn_computer_actors.after("spawn_game_world"))
+                .with_system(restart_round_timer.after("spawn_game_world")),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
@@ -134,6 +127,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
         .add_system_set(SystemSet::on_update(AppState::Reset).with_system(restart_round))
         // Initialize Resources
         .init_resource::<GameMap>();
+
     if mode == "train" {
         app.add_state(AppState::InGame);
 

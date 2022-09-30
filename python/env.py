@@ -3,13 +3,14 @@ import requests
 import numpy as np
 import json
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 from gym import spaces
 
 
-API_SCREEN = 'http://127.0.0.1:7878/screen.png'
+API_SCREEN = 'http://127.0.0.1:7878/visual_observations'
 API_STEP = 'http://127.0.0.1:7878/step'
 API_RESET = 'http://127.0.0.1:7878/reset'
+API_STATE = 'http://127.0.0.1:7878/state'
 
 ACTION_MAP = {
     0: "IDLE",
@@ -25,8 +26,7 @@ ACTION_MAP = {
 
 class Environment:
 
-    def __init__(self, executable_path, size, number_of_agents):
-        self.executable_path = executable_path
+    def __init__(self, size, number_of_agents):
         self.size = size
         self.number_of_agents = number_of_agents
         self.observation_space = spaces.Box(
@@ -36,14 +36,14 @@ class Environment:
         self.images = []
 
     def reset(self, seed=None):
-        requests.post(API_RESET, timeout=10)
+        requests.post(API_RESET)
         return self.visual_observations(), None
 
     def step(self, actions):
         actions = [{"action": ACTION_MAP[a]} for a in actions]
         action_json = json.dumps(actions, indent=4)
         response = requests.get(
-            API_STEP, params={'payload': action_json}, timeout=10)
+            API_STEP, params={'payload': action_json})
 
         state = response.json()
         observation = self.visual_observations()
@@ -54,6 +54,38 @@ class Environment:
         info = None
 
         return observation, reward, terminated, truncated, info
+
+    def render(self, mode='fps'):
+        if mode == 'fps':
+            return self.images
+        elif mode == 'map':
+            return None
+
+    def state(self):
+        return requests.get(API_STATE).json()
+
+    def map(self):
+        state = self.state()
+        positions = state['map']['walls']
+        x = np.max([p[0] for p in positions]) + 1
+        y = np.max([p[1] for p in positions]) + 1
+
+        img = np.zeros((x, y), dtype=np.uint8)
+
+        for p in positions:
+            img[p[0], p[1]] = 255
+
+        img = Image.fromarray(img, mode="L").convert("RGB")
+
+        for a in state['actors']:
+            y = int(a['position'][0])
+            x = int(a['position'][1])
+            if a['health'] == 0:
+                continue
+            draw = ImageDraw.Draw(img)
+            draw.ellipse((x, y, x+3, y+3), fill='red',)
+
+        return img
 
     def visual_observations(self):
         image = imageio.imread(API_SCREEN)

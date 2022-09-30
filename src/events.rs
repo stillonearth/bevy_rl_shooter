@@ -5,7 +5,7 @@ use bevy_mod_raycast::RayCastSource;
 use bevy_rl::state::AIGymState;
 use heron::*;
 
-use crate::{actions::*, actors::Actor, game::*, level::*};
+use crate::{actions::*, actors::Actor, game::*, gym::EnvironmentState, level::*};
 
 #[derive(Debug)]
 pub(crate) struct EventGunShot {
@@ -28,7 +28,7 @@ pub(crate) struct EventNewRound;
 pub(crate) fn event_gun_shot(
     mut commands: Commands,
     shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
-    player_query: Query<(Entity, &Children, &Actor)>,
+    actor_query: Query<(Entity, &Children, &Actor)>,
     wall_query: Query<(Entity, &Wall)>,
 
     mut gunshot_event: EventReader<EventGunShot>,
@@ -36,7 +36,7 @@ pub(crate) fn event_gun_shot(
 ) {
     for gunshot_event in gunshot_event.iter() {
         let result = shooting_query.iter().find(|(p, _)| {
-            !player_query
+            !actor_query
                 .iter()
                 .find(|(e, _, _p)| e.id() == p.id() && _p.name == gunshot_event.from)
                 .is_none()
@@ -55,7 +55,7 @@ pub(crate) fn event_gun_shot(
         let hit_entity = r.unwrap().0;
 
         let mut player_hit = false;
-        for (_, children, enemy) in player_query.iter() {
+        for (_, children, enemy) in actor_query.iter() {
             let other_entity = children.iter().find(|c| c.id() == hit_entity.id());
             if other_entity.is_none() {
                 continue;
@@ -84,7 +84,7 @@ pub(crate) fn event_damage(
     mut commands: Commands,
     mut player_query: Query<(Entity, &Children, &mut Actor, &mut Velocity)>,
     mut event_damage: EventReader<EventDamage>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
 ) {
     for damage_event in event_damage.iter() {
         if damage_event.from == damage_event.to {
@@ -93,31 +93,19 @@ pub(crate) fn event_damage(
 
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
-        if let Some((i, (entity, _, mut player, mut _velocity))) = player_query
+        if let Some((i, (entity, _, mut actor, mut _velocity))) = player_query
             .iter_mut()
+            .filter(|(_, _, actor, _)| actor.health > 0)
             .enumerate()
             .find(|(_, p)| p.2.name == damage_event.to)
         {
-            if player.health == 0 {
-                continue;
-            }
+            actor.health -= 100;
 
-            player.health -= 100;
+            commands
+                .entity(entity)
+                .insert(Velocity::from_linear(Vec3::ZERO))
+                .insert(Visibility { is_visible: false });
 
-            if player.health == 0 {
-                commands
-                    .entity(entity)
-                    .insert(Velocity::from_linear(Vec3::ZERO))
-                    .insert(Visibility { is_visible: false })
-                    .insert(Transform::from_translation(Vec3::new(0.0, -1000.0, 0.0)));
-            }
-
-            let (_, _, mut hit_player, _) = player_query
-                .iter_mut()
-                .find(|(_, _, p, _)| p.name == damage_event.from)
-                .unwrap();
-
-            hit_player.score += 10;
             ai_gym_state.set_reward(i, 10.0);
         }
     }

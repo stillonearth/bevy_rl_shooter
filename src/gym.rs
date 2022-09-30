@@ -3,12 +3,19 @@ use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
 use bevy_rl::{state::AIGymState, AIGymSettings};
 use heron::*;
+use serde::Serialize;
 
-use crate::{actions::*, actors::*, app_states::*, control::*, events::*};
+use crate::{actions::*, actors::*, app_states::*, control::*, events::*, level::GameMap};
+
+#[derive(Default, Serialize, Clone)]
+pub struct EnvironmentState {
+    pub map: GameMap,
+    pub actors: Vec<Actor>,
+}
 
 pub(crate) fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
     if !ai_gym_state.is_reset_request() {
@@ -23,18 +30,27 @@ pub(crate) fn turnbased_control_system_switch(
     mut app_state: ResMut<State<AppState>>,
     time: Res<Time>,
     mut timer: ResMut<DelayedControlTimer>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
     ai_gym_settings: Res<AIGymSettings>,
     mut physics_time: ResMut<PhysicsTime>,
+    actor_query: Query<(Entity, &Actor)>,
+    game_map: Res<GameMap>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
         app_state.overwrite_push(AppState::Control).unwrap();
         physics_time.pause();
 
         {
-            let ai_gym_state = ai_gym_state.lock().unwrap();
+            let mut ai_gym_state = ai_gym_state.lock().unwrap();
             let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
             ai_gym_state.send_step_result(results);
+
+            let env_state = EnvironmentState {
+                map: game_map.clone(),
+                actors: actor_query.iter().map(|(_, a)| a.clone()).collect(),
+            };
+
+            ai_gym_state.set_env_state(env_state);
         }
     }
 }
@@ -43,7 +59,7 @@ pub(crate) fn execute_step_request(
     agent_movement_q: Query<(&mut heron::prelude::Velocity, &mut Transform, &Actor)>,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags>>>>,
+    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
     ai_gym_settings: Res<AIGymSettings>,
     mut app_state: ResMut<State<AppState>>,
     mut physics_time: ResMut<PhysicsTime>,
