@@ -1,9 +1,7 @@
-use std::sync::{Arc, Mutex};
-
 use bevy::prelude::*;
-use bevy_mod_raycast::RayCastSource;
+use bevy_mod_raycast::RaycastSource;
+use bevy_rapier3d::prelude::*;
 use bevy_rl::state::AIGymState;
-use heron::*;
 
 use crate::{actions::*, actors::Actor, game::*, gym::EnvironmentState, level::*};
 
@@ -27,7 +25,7 @@ pub(crate) struct EventNewRound;
 
 pub(crate) fn event_gun_shot(
     mut commands: Commands,
-    shooting_query: Query<(&Parent, &RayCastSource<RaycastMarker>)>,
+    shooting_query: Query<(&Parent, &RaycastSource<RaycastMarker>)>,
     actor_query: Query<(Entity, &Children, &Actor)>,
     wall_query: Query<(Entity, &Wall)>,
 
@@ -36,10 +34,9 @@ pub(crate) fn event_gun_shot(
 ) {
     for gunshot_event in gunshot_event.iter() {
         let result = shooting_query.iter().find(|(p, _)| {
-            !actor_query
+            actor_query
                 .iter()
-                .find(|(e, _, _p)| e.id() == p.id() && _p.name == gunshot_event.from)
-                .is_none()
+                .any(|(e, _, _p)| e.index() == p.index() && _p.name == gunshot_event.from)
         });
 
         if result.is_none() {
@@ -47,7 +44,7 @@ pub(crate) fn event_gun_shot(
         }
 
         let (_, raycast_source) = result.unwrap();
-        let r = raycast_source.intersect_top();
+        let r = raycast_source.intersections().first();
         if r.is_none() {
             continue;
         }
@@ -56,7 +53,7 @@ pub(crate) fn event_gun_shot(
 
         let mut player_hit = false;
         for (_, children, enemy) in actor_query.iter() {
-            let other_entity = children.iter().find(|c| c.id() == hit_entity.id());
+            let other_entity = children.iter().find(|c| c.index() == hit_entity.index());
             if other_entity.is_none() {
                 continue;
             }
@@ -72,7 +69,9 @@ pub(crate) fn event_gun_shot(
 
         // despawn a wall
         if !player_hit {
-            let wall_entity = wall_query.iter().find(|(w, _)| w.id() == hit_entity.id());
+            let wall_entity = wall_query
+                .iter()
+                .find(|(w, _)| w.index() == hit_entity.index());
             if wall_entity.is_some() {
                 commands.entity(hit_entity).despawn_recursive();
             }
@@ -84,7 +83,7 @@ pub(crate) fn event_damage(
     mut commands: Commands,
     mut player_query: Query<(Entity, &Children, &mut Actor, &mut Velocity)>,
     mut event_damage: EventReader<EventDamage>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
+    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
 ) {
     for damage_event in event_damage.iter() {
         if damage_event.from == damage_event.to {
@@ -103,7 +102,7 @@ pub(crate) fn event_damage(
 
             commands
                 .entity(entity)
-                .insert(Velocity::from_linear(Vec3::ZERO))
+                .insert(Velocity { ..default() })
                 .insert(Visibility { is_visible: false });
 
             ai_gym_state.set_reward(i, 10.0);

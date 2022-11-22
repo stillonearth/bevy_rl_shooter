@@ -1,8 +1,7 @@
-use std::sync::{Arc, Mutex};
-
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::*;
 use bevy_rl::{state::AIGymState, AIGymSettings};
-use heron::*;
+
 use serde::Serialize;
 
 use crate::{actions::*, actors::*, app_states::*, control::*, events::*, level::GameMap};
@@ -15,7 +14,7 @@ pub struct EnvironmentState {
 
 pub(crate) fn execute_reset_request(
     mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
+    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
 ) {
     let ai_gym_state = ai_gym_state.lock().unwrap();
     if !ai_gym_state.is_reset_request() {
@@ -26,19 +25,20 @@ pub(crate) fn execute_reset_request(
     app_state.set(AppState::Reset).unwrap();
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn turnbased_control_system_switch(
     mut app_state: ResMut<State<AppState>>,
     time: Res<Time>,
     mut timer: ResMut<DelayedControlTimer>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
+    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
     ai_gym_settings: Res<AIGymSettings>,
-    mut physics_time: ResMut<PhysicsTime>,
+    mut rapier_configuration: ResMut<RapierConfiguration>,
     actor_query: Query<(Entity, &Actor)>,
     game_map: Res<GameMap>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
         app_state.overwrite_push(AppState::Control).unwrap();
-        physics_time.pause();
+        rapier_configuration.physics_pipeline_active = false;
 
         {
             let mut ai_gym_state = ai_gym_state.lock().unwrap();
@@ -56,13 +56,13 @@ pub(crate) fn turnbased_control_system_switch(
 }
 
 pub(crate) fn execute_step_request(
-    agent_movement_q: Query<(&mut heron::prelude::Velocity, &mut Transform, &Actor)>,
+    agent_movement_q: Query<(&mut Velocity, &mut Transform, &Actor)>,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
+    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
     ai_gym_settings: Res<AIGymSettings>,
     mut app_state: ResMut<State<AppState>>,
-    mut physics_time: ResMut<PhysicsTime>,
+    mut rapier_configuration: ResMut<RapierConfiguration>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
 
@@ -97,7 +97,7 @@ pub(crate) fn execute_step_request(
         actions[i] = action;
     }
 
-    physics_time.resume();
+    rapier_configuration.physics_pipeline_active = true;
     control_agents(actions, agent_movement_q, collision_events, event_gun_shot);
 
     app_state.pop().unwrap();

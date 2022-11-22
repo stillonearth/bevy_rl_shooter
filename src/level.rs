@@ -1,11 +1,12 @@
 use bevy::prelude::*;
-use bevy_mod_raycast::RayCastMesh;
-use heron::*;
+use bevy_mod_raycast::RaycastMesh;
+use bevy_rapier3d::prelude::*;
+
 use serde::{Deserialize, Serialize};
 
-use crate::{game::*, map, physics::*};
+use crate::{game::*, map};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Resource)]
 pub struct GameMap {
     pub empty_space: Vec<(usize, usize)>,
     pub walls: Vec<(usize, usize)>,
@@ -13,8 +14,8 @@ pub struct GameMap {
 
 impl Default for GameMap {
     fn default() -> Self {
-        let deserialized: GameMap = serde_json::from_str(&map::JSON).unwrap();
-        return deserialized;
+        let deserialized: GameMap = serde_json::from_str(map::JSON).unwrap();
+        deserialized
     }
 }
 
@@ -26,10 +27,9 @@ struct WallBundle {
     #[bundle]
     pbr_pundle: PbrBundle,
     rigid_body: RigidBody,
-    collision_shape: CollisionShape,
-    collision_layers: CollisionLayers,
+    collider: Collider,
     wall: Wall,
-    raycast_marker: RayCastMesh<RaycastMarker>,
+    raycast_marker: RaycastMesh<RaycastMarker>,
 }
 
 pub(crate) fn spawn_game_world(
@@ -49,16 +49,13 @@ pub(crate) fn spawn_game_world(
     // spawn floor only once
     if walls.iter().len() == 0 {
         commands
-            .spawn_bundle(PbrBundle {
-                mesh: mesh.clone(),
+            .spawn(PbrBundle {
+                mesh,
                 material: white_material_handle.clone(),
                 ..Default::default()
             })
-            .insert(RigidBody::Static)
-            .insert(CollisionShape::HeightField {
-                size: Vec2::new((100 * 255) as f32, (100 * 255) as f32),
-                heights: vec![vec![0.0, 0.0, 0.0, 0.0, 0.0], vec![0.0, 0.0, 0.0, 0.0, 0.0]],
-            });
+            .insert(RigidBody::Fixed)
+            .insert(Collider::cuboid(256.0, 1.0, 256.0));
     }
 
     let wall_mesh = meshes.add(Mesh::from(shape::Cube { size: 2.0 }));
@@ -66,23 +63,19 @@ pub(crate) fn spawn_game_world(
         .walls
         .iter()
         .map(|(x, z)| {
-            return WallBundle {
+            WallBundle {
                 pbr_pundle: PbrBundle {
                     mesh: wall_mesh.clone(),
                     material: white_material_handle.clone(),
                     transform: Transform::from_translation(Vec3::new(*x as f32, 1.0, *z as f32)),
-                    global_transform: GlobalTransform::identity(),
+                    global_transform: GlobalTransform::IDENTITY,
                     ..Default::default()
                 },
-                rigid_body: RigidBody::Static,
-                collision_shape: CollisionShape::Cuboid {
-                    half_extends: Vec3::new(1.0, 1.0, 1.0),
-                    border_radius: None,
-                },
-                collision_layers: CollisionLayers::new(Layer::World, Layer::Player),
-                raycast_marker: RayCastMesh::<RaycastMarker>::default(),
+                rigid_body: RigidBody::Fixed,
+                collider: Collider::cuboid(1.0, 1.0, 1.0),
+                raycast_marker: RaycastMesh::<RaycastMarker>::default(),
                 wall: Wall,
-            };
+            }
         })
         .collect();
 

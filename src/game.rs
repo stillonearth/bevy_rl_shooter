@@ -1,10 +1,7 @@
-use std::sync::{Arc, Mutex};
-
 use bevy::prelude::*;
-// use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
-use bevy_rl::{state::AIGymState, AIGymPlugin, AIGymSettings};
-use heron::*;
+use bevy_rapier3d::prelude::*;
+use bevy_rl::{render::AIGymPlugin, state::AIGymState, AIGymSettings};
 
 use crate::{
     actions::*, actors::Actor, actors::*, app_states::*, control::*, events::*, gym::*, level::*,
@@ -14,7 +11,7 @@ use crate::{
 // Components
 // ----------
 
-#[derive(Component)]
+#[derive(Component, Resource)]
 pub(crate) struct RoundTimer(pub(crate) Timer);
 
 pub(crate) struct RaycastMarker;
@@ -46,7 +43,7 @@ fn check_termination(
     time: Res<Time>,
     mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
+    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
     ai_gym_settings: Res<AIGymSettings>,
 ) {
     let zero_health_actors = player_query.iter().filter(|p| p.health == 0).count() as u32;
@@ -55,25 +52,26 @@ fn check_termination(
 
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
     let agents: Vec<&Actor> = player_query.iter().collect();
+    #[allow(clippy::needless_range_loop)]
     for i in 0..agents.len() {
         if agents[i].health == 0 {
             ai_gym_state.set_terminated(i, true);
         }
     }
 
-    if ai_gym_settings.num_agents == zero_health_actors || seconds_left <= 0 {
+    if ai_gym_settings.num_agents == zero_health_actors || seconds_left == 0 {
         app_state.overwrite_set(AppState::RoundOver).unwrap();
     }
 }
 
 pub(crate) fn restart_round(
     mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
-    mut physics_time: ResMut<PhysicsTime>,
+    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
+    mut rapier_configuration: ResMut<RapierConfiguration>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
     ai_gym_state.reset();
-    physics_time.resume();
+    rapier_configuration.physics_pipeline_active = true;
 
     app_state.set(AppState::InGame).unwrap();
 }
@@ -89,7 +87,6 @@ pub(crate) fn build_game_app(mode: String) -> App {
 
     // Resources
     app.insert_resource(ClearColor(Color::WHITE))
-        .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
         .insert_resource(DefaultPluginState::<RaycastMarker>::default())
         // Events
         .add_event::<EventGunShot>()
@@ -98,17 +95,16 @@ pub(crate) fn build_game_app(mode: String) -> App {
         // Plugins
         .add_plugins(DefaultPlugins)
         // .add_plugin(WorldInspectorPlugin::new())
-        .add_plugin(PhysicsPlugin::default())
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // bevy_rl initialization
         .insert_resource(gym_settings.clone())
-        .insert_resource(Arc::new(Mutex::new(AIGymState::<
-            PlayerActionFlags,
-            EnvironmentState,
-        >::new(gym_settings.clone()))))
+        .insert_resource(AIGymState::<PlayerActionFlags, EnvironmentState>::new(
+            gym_settings,
+        ))
         .add_plugin(AIGymPlugin::<PlayerActionFlags, EnvironmentState>::default())
         // game settings: round duration
-        .insert_resource(RoundTimer(Timer::from_seconds(60.0, false)))
+        .insert_resource(RoundTimer(Timer::from_seconds(60.0, TimerMode::Repeating)))
         // State chain
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
         .add_system_set(
@@ -150,8 +146,11 @@ pub(crate) fn build_game_app(mode: String) -> App {
             SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
         );
 
-        app.insert_resource(DelayedControlTimer(Timer::from_seconds(0.1, true)));
+        app.insert_resource(DelayedControlTimer(Timer::from_seconds(
+            0.1,
+            TimerMode::Repeating,
+        )));
     }
 
-    return app;
+    app
 }

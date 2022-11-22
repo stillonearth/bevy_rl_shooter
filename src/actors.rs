@@ -1,22 +1,22 @@
 use bevy::core_pipeline::clear_color::ClearColorConfig;
+use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
-use bevy_mod_raycast::RayCastMesh;
+
+use bevy_mod_raycast::{RaycastMesh, RaycastSource};
+use bevy_rapier3d::prelude::*;
+use bevy_rl::state::AIGymState;
 use bevy_rl::AIGymSettings;
+
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
-use serde::Serialize;
-use std::sync::{Arc, Mutex};
 
-use bevy::prelude::*;
-use bevy_mod_raycast::RayCastSource;
-use bevy_rl::state::AIGymState;
-use heron::*;
+use serde::Serialize;
 
 use names::Generator;
 
 use crate::gym::EnvironmentState;
-use crate::{actions::*, game::*, level::*, physics::*};
+use crate::{actions::*, game::*, level::*};
 
 // Components
 
@@ -32,13 +32,11 @@ pub struct Actor {
 
 #[derive(Bundle)]
 pub(crate) struct ActorBundle {
-    collision_layers: CollisionLayers,
-    collision_shape: CollisionShape,
+    collider: Collider,
     actor: Actor,
     rigid_body: RigidBody,
-    rotation_constraints: RotationConstraints,
+    locked_axes: LockedAxes,
     velocity: Velocity,
-    physics_material: PhysicMaterial,
     #[bundle]
     spacial_bundle: SpatialBundle,
 }
@@ -47,7 +45,7 @@ pub(crate) struct ActorBundle {
 struct ActorWeaponBundle {
     #[bundle]
     camera_bundle: Camera3dBundle,
-    raycast_source: RayCastSource<RaycastMarker>,
+    raycast_source: RaycastSource<RaycastMarker>,
 }
 
 // Constructors
@@ -62,7 +60,7 @@ fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
         health: 100,
     };
 
-    return ActorBundle {
+    ActorBundle {
         spacial_bundle: SpatialBundle {
             transform: Transform {
                 translation: Vec3::new(actor.position.0 as f32, 1.0, actor.position.1 as f32),
@@ -72,21 +70,16 @@ fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
             visibility: Visibility { is_visible: true },
             ..Default::default()
         },
-        velocity: Velocity::from_linear(Vec3::ZERO),
-        collision_shape: CollisionShape::Sphere { radius: 1.0 },
+        velocity: Velocity { ..default() },
+        collider: Collider::ball(1.0),
         rigid_body: RigidBody::Dynamic,
-        physics_material: PhysicMaterial {
-            density: 1.0,
-            ..Default::default()
-        },
-        collision_layers: CollisionLayers::new(Layer::Player, Layer::World),
         actor,
-        rotation_constraints: RotationConstraints::lock(),
-    };
+        locked_axes: (LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z),
+    }
 }
 
 fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
-    return ActorWeaponBundle {
+    ActorWeaponBundle {
         camera_bundle: Camera3dBundle {
             camera: Camera {
                 target: render_target,
@@ -99,8 +92,8 @@ fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
             },
             ..default()
         },
-        raycast_source: RayCastSource::<RaycastMarker>::new_transform_empty(),
-    };
+        raycast_source: RaycastSource::<RaycastMarker>::new_transform_empty(),
+    }
 }
 
 // Systems
@@ -108,7 +101,7 @@ pub(crate) fn spawn_computer_actors(
     mut commands: Commands,
     game_map: Res<GameMap>,
     ai_gym_settings: Res<AIGymSettings>,
-    ai_gym_state: Res<Arc<Mutex<AIGymState<PlayerActionFlags, EnvironmentState>>>>,
+    ai_gym_state: Res<AIGymState<PlayerActionFlags, EnvironmentState>>,
 
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -126,25 +119,25 @@ pub(crate) fn spawn_computer_actors(
         let agent_bundle = new_agent_bundle(game_map.clone(), Generator::default().next().unwrap());
 
         actors.push(agent_bundle.actor.clone());
-        commands.spawn_bundle(agent_bundle).with_children(|cell| {
+        commands.spawn(agent_bundle).with_children(|cell| {
             // Agent model
-            cell.spawn_bundle(PbrBundle {
+            cell.spawn(PbrBundle {
                 mesh: mesh.clone(),
                 material: material.clone(),
                 transform: Transform::from_scale(Vec3::splat(0.33)),
                 ..default()
             })
-            .insert(RayCastMesh::<RaycastMarker>::default());
+            .insert(RaycastMesh::<RaycastMarker>::default());
             // Camera
             let agent_camera_bundle = new_agent_camera_bundle(RenderTarget::Image(
                 ai_gym_state.render_image_handles[i as usize].clone(),
             ));
-            cell.spawn_bundle(agent_camera_bundle);
+            cell.spawn(agent_camera_bundle);
         });
     }
     let env_state = EnvironmentState {
         map: game_map.clone(),
-        actors: actors,
+        actors,
     };
     ai_gym_state.set_env_state(env_state);
 }

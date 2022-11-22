@@ -1,18 +1,20 @@
 [package]
 edition = "2021"
-name = "bevystein"
-version = "0.0.1"
+name = "bevy_rl_shooter"
+version = "0.1.0"
 
 [dependencies]
-bevy = { version = "0.8.1" }
-bevy_mod_raycast = { version = "0.6.0" }
-bevy-inspector-egui = "0.13.0"
-bevy_rl = { version = "0.8.4" }
-# bevy_rl = { path = "../bevy_rl" }
+bevy = { version = "0.9.0" }
+bevy_mod_raycast = { version = "0.7.0" }
+bevy-inspector-egui = "0.14.0"
+bevy_rl = { version = "0.9.3" }
 bitflags = "1.3.2"
 clap = { version = "4.0.2", features = ["derive"] }
 crossbeam-channel = "0.5.6"
-heron = { version = "4.0.1", features = ["3d"] }
+bevy_rapier3d = { version = "0.19.0", features = [
+    "simd-stable",
+    "debug-render",
+] }
 image = "0.24.1"
 names = { version = "0.14.0", default-features = false }
 rand = "0.8.5"
