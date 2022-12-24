@@ -83,6 +83,7 @@ pub(crate) fn build_game_app(mode: String) -> App {
         width: 256,
         height: 256,
         num_agents: 16,
+        render_to_buffer: true,
     };
 
     // Resources

@@ -4,8 +4,7 @@ use bevy::render::camera::RenderTarget;
 
 use bevy_mod_raycast::{RaycastMesh, RaycastSource};
 use bevy_rapier3d::prelude::*;
-use bevy_rl::state::AIGymState;
-use bevy_rl::AIGymSettings;
+use bevy_rl::*;
 
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
