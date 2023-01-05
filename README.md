@@ -1,8 +1,7 @@
 # 👾Multi-Agent 🎮 FPS Gym Environment with 🏋️ bevy_rl
 
-[![Crates.io](https://img.shields.io/crates/v/bevy_rl_shooter.svg)](https://crates.io/crates/bevy_rl_shooter)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/bevyengine/bevy#license)
-[![Rust](https://github.com/stillonearth/bevy_rl_shooter/workflows/CI/badge.svg)](https://github.com/stillonearth/bevy_rl_shooter/actions)
+[![Rust](https://github.com/stillonearth/bevy_quadruped_neural_control/workflows/CI/badge.svg)](https://github.com/stillonearth/bevy_quadruped_neural_control/actions)
 
 ##
 
@@ -17,14 +16,14 @@ This project is an attempt to build minimal multi-agent FPS game with Bevy Game 
 - Create a multi-agent gym environment
 - Create an example project for bevy_rl
 
-## Environment description
+## Environment Description
 
 - Deathmatch free-for-all
 - Agents spawn as red spheres
 - 1-hit kill
 - +10 reward on kill
 
-## Implementation details
+## Implementation Details
 
 - [bevy](https://bevyengine.org/) is a free game engine written in Rust
 - [bevy_rl](https://github.com/stillonearth/bevy_rl) is a plugin for Bevy that implements OpenAI Gym interface

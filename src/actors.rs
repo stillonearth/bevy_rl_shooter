@@ -58,7 +58,7 @@ fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
     ActorBundle {
         spacial_bundle: SpatialBundle {
             transform: Transform {
-                translation: Vec3::new(actor.position.0 as f32, 1.0, actor.position.1 as f32),
+                translation: Vec3::new(actor.position.0, 1.0, actor.position.1),
                 rotation: Quat::from_rotation_y(actor.rotation),
                 ..Default::default()
             },
