@@ -1,7 +1,20 @@
 [package]
-edition = "2021"
+repository = "https://github.com/stillonearth/bevy_rl_shooter
+"edition = "2021"
 name = "bevy_rl_shooter"
 version = "0.1.2"
+license = "MIT OR Apache-2.0"
+description = "👾Multi-Agent 🎮 FPS Gym Environment with 🏋️ bevy_rl"
+keywords = [
+    "ai",
+    "bevy",
+    "gym",
+    "rl",
+    "bevy_rl",
+    "shooter",
+    "fps",
+    "multi-agent",
+]
 
 [dependencies]
 bevy = { version = "0.9.0" }
