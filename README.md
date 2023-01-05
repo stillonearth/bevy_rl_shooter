@@ -1,7 +1,5 @@
 # 👾Multi-Agent 🎮 FPS Gym Environment with 🏋️ bevy_rl
 
-##
-
 [![Crates.io](https://img.shields.io/crates/v/bevy_rl_shooter.svg)](https://crates.io/crates/bevy_rl_shooter)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/bevyengine/bevy#license)
 [![Rust](https://github.com/stillonearth/bevy_rl_shooter/workflows/CI/badge.svg)](https://github.com/stillonearth/bevy_rl_shooter/actions)
