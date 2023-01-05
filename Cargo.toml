@@ -1,6 +1,6 @@
 [package]
-repository = "https://github.com/stillonearth/bevy_rl_shooter
-"edition = "2021"
+repository = "https://github.com/stillonearth/bevy_rl_shooter"
+edition = "2021"
 name = "bevy_rl_shooter"
 version = "0.1.2"
 license = "MIT OR Apache-2.0"
