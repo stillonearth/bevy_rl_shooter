@@ -47,7 +47,7 @@ pub(crate) fn bevy_rl_control_request(
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
 ) {
-    for control in control_event_reader.iter() {
+    if let Some(control) = control_event_reader.iter().next() {
         let mut ai_gym_state = ai_gym_state.lock().unwrap();
         let ai_gym_settings = ai_gym_state.settings.clone();
         let unparsed_actions = &control.0;
@@ -83,7 +83,6 @@ pub(crate) fn bevy_rl_control_request(
         // Return to running state; note that it uses pop/push to avoid
         // entering `SystemSet::on_enter(SimulationState::Running)` which initialized game world anew
         simulation_state.pop().unwrap();
-        return;
     }
 }
 
