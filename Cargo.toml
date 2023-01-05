@@ -5,16 +5,7 @@ name = "bevy_rl_shooter"
 version = "0.1.2"
 license = "MIT OR Apache-2.0"
 description = "👾Multi-Agent 🎮 FPS Gym Environment with 🏋️ bevy_rl"
-keywords = [
-    "ai",
-    "bevy",
-    "gym",
-    "rl",
-    "bevy_rl",
-    "shooter",
-    "fps",
-    "multi-agent",
-]
+keywords = ["ai", "bevy", "gym", "rl", "bevy_rl"]
 
 [dependencies]
 bevy = { version = "0.9.0" }
