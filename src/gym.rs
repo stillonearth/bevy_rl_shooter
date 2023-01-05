@@ -1,104 +1,135 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
-use bevy_rl::{state::AIGymState, AIGymSettings};
+use bevy_rl::*;
 
 use serde::Serialize;
 
-use crate::{actions::*, actors::*, app_states::*, control::*, events::*, level::GameMap};
+use crate::{actions::*, actors::*, control::*, events::*, level::*};
 
 #[derive(Default, Serialize, Clone)]
-pub struct EnvironmentState {
-    pub map: GameMap,
-    pub actors: Vec<Actor>,
+pub(crate) struct EnvironmentState {
+    pub(crate) map: GameMap,
+    pub(crate) actors: Vec<Actor>,
 }
 
-pub(crate) fn execute_reset_request(
-    mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
+/// Handle bevy_rl::EventPauseResume
+pub(crate) fn bevy_rl_pause_request(
+    mut pause_event_reader: EventReader<EventPause>,
+    ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
+    mut rapier_configuration: ResMut<RapierConfiguration>,
+    game_map: Res<GameMap>,
+    query_actors: Query<(Entity, &Actor)>,
 ) {
-    let ai_gym_state = ai_gym_state.lock().unwrap();
-    if !ai_gym_state.is_reset_request() {
+    if pause_event_reader.iter().count() == 0 {
         return;
     }
 
-    ai_gym_state.receive_reset_request();
-    app_state.set(AppState::Reset).unwrap();
+    let _ = pause_event_reader.iter().last();
+    // Pause simulation (physics engine)
+    rapier_configuration.physics_pipeline_active = false;
+    // Collect state into serializable struct
+    let env_state = EnvironmentState {
+        map: game_map.clone(),
+        actors: query_actors.iter().map(|(_, a)| a.clone()).collect(),
+    };
+    // Set bevy_rl gym state
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    ai_gym_state.set_env_state(env_state);
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn turnbased_control_system_switch(
-    mut app_state: ResMut<State<AppState>>,
-    time: Res<Time>,
-    mut timer: ResMut<DelayedControlTimer>,
-    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
-    ai_gym_settings: Res<AIGymSettings>,
+/// Handle bevy_rl::EventControl
+pub(crate) fn bevy_rl_control_request(
+    ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
+    mut control_event_reader: EventReader<EventControl>,
+    mut simulation_state: ResMut<State<SimulationState>>,
     mut rapier_configuration: ResMut<RapierConfiguration>,
-    actor_query: Query<(Entity, &Actor)>,
-    game_map: Res<GameMap>,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        app_state.overwrite_push(AppState::Control).unwrap();
-        rapier_configuration.physics_pipeline_active = false;
-
-        {
-            let mut ai_gym_state = ai_gym_state.lock().unwrap();
-            let results = (0..ai_gym_settings.num_agents).map(|_| true).collect();
-            ai_gym_state.send_step_result(results);
-
-            let env_state = EnvironmentState {
-                map: game_map.clone(),
-                actors: actor_query.iter().map(|(_, a)| a.clone()).collect(),
-            };
-
-            ai_gym_state.set_env_state(env_state);
-        }
-    }
-}
-
-pub(crate) fn execute_step_request(
-    agent_movement_q: Query<(&mut Velocity, &mut Transform, &Actor)>,
+    query_actors: Query<(&mut Velocity, &mut Transform, &Actor)>,
     collision_events: EventReader<CollisionEvent>,
     event_gun_shot: EventWriter<EventGunShot>,
-    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
-    ai_gym_settings: Res<AIGymSettings>,
-    mut app_state: ResMut<State<AppState>>,
-    mut rapier_configuration: ResMut<RapierConfiguration>,
 ) {
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    for control in control_event_reader.iter() {
+        let mut ai_gym_state = ai_gym_state.lock().unwrap();
+        let ai_gym_settings = ai_gym_state.settings.clone();
+        let unparsed_actions = &control.0;
+        let mut actions: Vec<Option<Actions>> =
+            (0..ai_gym_settings.num_agents).map(|_| None).collect();
 
-    if !ai_gym_state.is_next_action() {
+        for i in 0..unparsed_actions.len() {
+            if let Some(unparsed_action) = unparsed_actions[i].clone() {
+                ai_gym_state.set_reward(i, 0.0);
+                // Pass control inputs to your agents
+
+                let action = match unparsed_action.as_str() {
+                    "FORWARD" => Some(Actions::FORWARD),
+                    "BACKWARD" => Some(Actions::BACKWARD),
+                    "LEFT" => Some(Actions::LEFT),
+                    "RIGHT" => Some(Actions::RIGHT),
+                    "TURN_LEFT" => Some(Actions::TURN_LEFT),
+                    "TURN_RIGHT" => Some(Actions::TURN_RIGHT),
+                    "SHOOT" => Some(Actions::SHOOT),
+                    _ => None,
+                };
+
+                actions[i] = action;
+            } else {
+                actions[i] = None;
+            }
+        }
+
+        control_agents(actions, query_actors, collision_events, event_gun_shot);
+        // Resume simulation (physics engine)
+        rapier_configuration.physics_pipeline_active = true;
+
+        // Return to running state; note that it uses pop/push to avoid
+        // entering `SystemSet::on_enter(SimulationState::Running)` which initialized game world anew
+        simulation_state.pop().unwrap();
+        return;
+    }
+}
+
+/// Handle bevy_rl::EventReset
+pub(crate) fn bevy_rl_reset_request(
+    mut reset_event_reader: EventReader<EventReset>,
+    mut commands: Commands,
+    mut walls: Query<Entity, &Wall>,
+    mut players: Query<(Entity, &Actor)>,
+    mut simulation_state: ResMut<State<SimulationState>>,
+    ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
+) {
+    if reset_event_reader.iter().count() == 0 {
         return;
     }
 
-    let unparsed_actions = ai_gym_state.receive_action_strings();
-    let mut actions: Vec<Option<PlayerActionFlags>> =
-        (0..ai_gym_settings.num_agents).map(|_| None).collect();
-
-    for i in 0..unparsed_actions.len() {
-        let unparsed_action = unparsed_actions[i].clone();
-        ai_gym_state.set_reward(i, 0.0);
-
-        if unparsed_action.is_none() {
-            actions[i] = None;
-            continue;
-        }
-
-        let action = match unparsed_action.unwrap().as_str() {
-            "FORWARD" => Some(PlayerActionFlags::FORWARD),
-            "BACKWARD" => Some(PlayerActionFlags::BACKWARD),
-            "LEFT" => Some(PlayerActionFlags::LEFT),
-            "RIGHT" => Some(PlayerActionFlags::RIGHT),
-            "TURN_LEFT" => Some(PlayerActionFlags::TURN_LEFT),
-            "TURN_RIGHT" => Some(PlayerActionFlags::TURN_RIGHT),
-            "SHOOT" => Some(PlayerActionFlags::SHOOT),
-            _ => None,
-        };
-
-        actions[i] = action;
+    for e in walls.iter_mut() {
+        commands.entity(e).despawn_recursive();
     }
 
-    rapier_configuration.physics_pipeline_active = true;
-    control_agents(actions, agent_movement_q, collision_events, event_gun_shot);
+    for (e, _) in players.iter_mut() {
+        commands.entity(e).despawn_recursive();
+    }
 
-    app_state.pop().unwrap();
+    simulation_state.set(SimulationState::Running).unwrap();
+
+    let ai_gym_state = ai_gym_state.lock().unwrap();
+    ai_gym_state.send_reset_result(true);
+}
+
+/// Handle EventRoundOver
+pub(crate) fn event_round_over(
+    ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
+    mut event_round_over_reader: EventReader<EventRoundOver>,
+    mut pause_event_writer: EventWriter<EventPause>,
+) {
+    if event_round_over_reader.iter().count() == 0 {
+        return;
+    }
+
+    let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    let ai_gym_settings = ai_gym_state.settings.clone();
+
+    for i in 0..ai_gym_settings.num_agents {
+        ai_gym_state.set_terminated(i as usize, true);
+    }
+
+    pause_event_writer.send(EventPause);
 }

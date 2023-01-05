@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 bitflags! {
     #[derive(Default)]
-    pub struct PlayerActionFlags: u32 {
+    pub struct Actions: u32 {
         const IDLE = 1 << 0;
         const FORWARD = 1 << 1;
         const BACKWARD = 1 << 2;

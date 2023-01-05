@@ -1,18 +1,14 @@
-use bevy::core_pipeline::clear_color::ClearColorConfig;
-use bevy::prelude::*;
-use bevy::render::camera::RenderTarget;
+use bevy::{
+    core_pipeline::clear_color::ClearColorConfig, prelude::*, render::camera::RenderTarget,
+};
 
 use bevy_mod_raycast::{RaycastMesh, RaycastSource};
 use bevy_rapier3d::prelude::*;
 use bevy_rl::*;
 
-use rand::prelude::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
-
-use serde::Serialize;
-
 use names::Generator;
+use rand::{prelude::SliceRandom, thread_rng, Rng};
+use serde::Serialize;
 
 use crate::gym::EnvironmentState;
 use crate::{actions::*, game::*, level::*};
@@ -99,13 +95,13 @@ fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
 pub(crate) fn spawn_computer_actors(
     mut commands: Commands,
     game_map: Res<GameMap>,
-    ai_gym_settings: Res<AIGymSettings>,
-    ai_gym_state: Res<AIGymState<PlayerActionFlags, EnvironmentState>>,
+    ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
 
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    let ai_gym_settings = ai_gym_state.settings.clone();
     let material = materials.add(Color::RED.into());
     let mesh = meshes.add(Mesh::from(shape::UVSphere {
         sectors: 128,

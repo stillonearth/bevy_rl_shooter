@@ -62,20 +62,18 @@ pub(crate) fn spawn_game_world(
     let walls_iter: Vec<WallBundle> = game_map
         .walls
         .iter()
-        .map(|(x, z)| {
-            WallBundle {
-                pbr_pundle: PbrBundle {
-                    mesh: wall_mesh.clone(),
-                    material: white_material_handle.clone(),
-                    transform: Transform::from_translation(Vec3::new(*x as f32, 1.0, *z as f32)),
-                    global_transform: GlobalTransform::IDENTITY,
-                    ..Default::default()
-                },
-                rigid_body: RigidBody::Fixed,
-                collider: Collider::cuboid(1.0, 1.0, 1.0),
-                raycast_marker: RaycastMesh::<RaycastMarker>::default(),
-                wall: Wall,
-            }
+        .map(|(x, z)| WallBundle {
+            pbr_pundle: PbrBundle {
+                mesh: wall_mesh.clone(),
+                material: white_material_handle.clone(),
+                transform: Transform::from_translation(Vec3::new(*x as f32, 1.0, *z as f32)),
+                global_transform: GlobalTransform::IDENTITY,
+                ..Default::default()
+            },
+            rigid_body: RigidBody::Fixed,
+            collider: Collider::cuboid(1.0, 1.0, 1.0),
+            raycast_marker: RaycastMesh::<RaycastMarker>::default(),
+            wall: Wall,
         })
         .collect();
 

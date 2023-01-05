@@ -1,11 +1,9 @@
 use bevy::prelude::*;
 use bevy_mod_raycast::{DefaultPluginState, DefaultRaycastingPlugin};
 use bevy_rapier3d::prelude::*;
-use bevy_rl::{render::AIGymPlugin, state::AIGymState, AIGymSettings};
+use bevy_rl::*;
 
-use crate::{
-    actions::*, actors::Actor, actors::*, app_states::*, control::*, events::*, gym::*, level::*,
-};
+use crate::{actions::*, actors::*, events::*, gym::*, level::*};
 
 // ----------
 // Components
@@ -20,20 +18,6 @@ pub(crate) struct RaycastMarker;
 // Systems
 // -------
 
-fn clear_world(
-    mut commands: Commands,
-    mut walls: Query<Entity, &Wall>,
-    mut players: Query<(Entity, &Actor)>,
-) {
-    for e in walls.iter_mut() {
-        commands.entity(e).despawn_recursive();
-    }
-
-    for (e, _) in players.iter_mut() {
-        commands.entity(e).despawn_recursive();
-    }
-}
-
 fn restart_round_timer(mut timer: ResMut<RoundTimer>) {
     timer.0.reset();
 }
@@ -41,16 +25,17 @@ fn restart_round_timer(mut timer: ResMut<RoundTimer>) {
 fn check_termination(
     player_query: Query<&Actor>,
     time: Res<Time>,
-    mut app_state: ResMut<State<AppState>>,
+    // mut app_state: ResMut<State<AppState>>,
     mut round_timer: ResMut<RoundTimer>,
-    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
-    ai_gym_settings: Res<AIGymSettings>,
+    ai_gym_state: ResMut<AIGymState<Actions, EnvironmentState>>,
+    mut event_round_over_writer: EventWriter<EventRoundOver>,
 ) {
     let zero_health_actors = player_query.iter().filter(|p| p.health == 0).count() as u32;
     round_timer.0.tick(time.delta());
     let seconds_left = round_timer.0.duration().as_secs() - round_timer.0.elapsed().as_secs();
 
     let mut ai_gym_state = ai_gym_state.lock().unwrap();
+    let ai_gym_settings = ai_gym_state.settings.clone();
     let agents: Vec<&Actor> = player_query.iter().collect();
     #[allow(clippy::needless_range_loop)]
     for i in 0..agents.len() {
@@ -60,98 +45,63 @@ fn check_termination(
     }
 
     if ai_gym_settings.num_agents == zero_health_actors || seconds_left == 0 {
-        app_state.overwrite_set(AppState::RoundOver).unwrap();
+        event_round_over_writer.send(EventRoundOver);
     }
 }
 
-pub(crate) fn restart_round(
-    mut app_state: ResMut<State<AppState>>,
-    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
-    mut rapier_configuration: ResMut<RapierConfiguration>,
-) {
-    let mut ai_gym_state = ai_gym_state.lock().unwrap();
-    ai_gym_state.reset();
-    rapier_configuration.physics_pipeline_active = true;
-
-    app_state.set(AppState::InGame).unwrap();
-}
-
-pub(crate) fn build_game_app(mode: String) -> App {
-    let mut app = App::new();
-
+pub(crate) fn build_game_app(_mode: String) -> App {
     let gym_settings = AIGymSettings {
         width: 256,
         height: 256,
         num_agents: 16,
+        pause_interval: 0.1,
         render_to_buffer: true,
     };
+
+    let mut app = App::new();
 
     // Resources
     app.insert_resource(ClearColor(Color::WHITE))
         .insert_resource(DefaultPluginState::<RaycastMarker>::default())
-        // Events
-        .add_event::<EventGunShot>()
+        .insert_resource(AIGymState::<Actions, EnvironmentState>::new(gym_settings))
+        .insert_resource(RoundTimer(Timer::from_seconds(60.0, TimerMode::Repeating)))
+        .init_resource::<GameMap>();
+
+    // Events
+    app.add_event::<EventGunShot>()
         .add_event::<EventDamage>()
-        .add_event::<EventNewRound>()
-        // Plugins
-        .add_plugins(DefaultPlugins)
+        .add_event::<EventRoundOver>();
+
+    // Plugins
+    app.add_plugins(DefaultPlugins)
         // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugin(DefaultRaycastingPlugin::<RaycastMarker>::default())
         // bevy_rl initialization
-        .insert_resource(gym_settings.clone())
-        .insert_resource(AIGymState::<PlayerActionFlags, EnvironmentState>::new(
-            gym_settings,
-        ))
-        .add_plugin(AIGymPlugin::<PlayerActionFlags, EnvironmentState>::default())
-        // game settings: round duration
-        .insert_resource(RoundTimer(Timer::from_seconds(60.0, TimerMode::Repeating)))
-        // State chain
-        .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(clear_world))
-        .add_system_set(
-            SystemSet::on_enter(AppState::InGame)
-                .with_system(spawn_game_world.label("spawn_game_world"))
-                .with_system(spawn_computer_actors.after("spawn_game_world"))
-                .with_system(restart_round_timer.after("spawn_game_world")),
-        )
-        .add_system_set(
-            SystemSet::on_update(AppState::InGame)
-                // Event handlers
-                .with_system(event_gun_shot)
-                .with_system(event_damage),
-        )
-        .add_system_set(SystemSet::on_enter(AppState::Reset).with_system(clear_world))
-        .add_system_set(SystemSet::on_update(AppState::Reset).with_system(restart_round))
-        // Initialize Resources
-        .init_resource::<GameMap>();
+        .add_plugin(AIGymPlugin::<Actions, EnvironmentState>::default());
 
-    if mode == "train" {
-        app.add_state(AppState::InGame);
-
-        app.add_system_set(
-            SystemSet::on_update(AppState::InGame)
-                // Game Systems
-                .with_system(check_termination)
-                .with_system(turnbased_control_system_switch),
-        );
-
-        app.add_system_set(
-            SystemSet::on_update(AppState::Control)
-                // Game Systems
-                .with_system(execute_step_request)
-                .with_system(execute_reset_request),
-        );
-
-        app.add_system_set(SystemSet::on_exit(AppState::RoundOver).with_system(clear_world));
-        app.add_system_set(
-            SystemSet::on_update(AppState::RoundOver).with_system(execute_reset_request),
-        );
-
-        app.insert_resource(DelayedControlTimer(Timer::from_seconds(
-            0.1,
-            TimerMode::Repeating,
-        )));
-    }
+    // Game world logic
+    app.add_system_set(
+        SystemSet::on_enter(SimulationState::Running)
+            .with_system(spawn_game_world.label("spawn_game_world"))
+            .with_system(spawn_computer_actors.after("spawn_game_world"))
+            .with_system(restart_round_timer.after("spawn_game_world")),
+    );
+    app.add_system_set(
+        SystemSet::on_update(SimulationState::Running)
+            // Event handlers
+            .with_system(event_gun_shot)
+            .with_system(event_damage)
+            .with_system(event_round_over)
+            .with_system(check_termination),
+    );
+    app.add_system_set(
+        SystemSet::on_update(SimulationState::PausedForControl)
+            // Event handlers
+            .with_system(bevy_rl_control_request)
+            .with_system(bevy_rl_reset_request)
+            .with_system(bevy_rl_pause_request),
+    );
 
     app
 }

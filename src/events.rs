@@ -17,7 +17,7 @@ pub(crate) struct EventDamage {
 }
 
 #[derive(Debug)]
-pub(crate) struct EventNewRound;
+pub(crate) struct EventRoundOver;
 
 // ------
 // Events
@@ -83,7 +83,7 @@ pub(crate) fn event_damage(
     mut commands: Commands,
     mut player_query: Query<(Entity, &Children, &mut Actor, &mut Velocity)>,
     mut event_damage: EventReader<EventDamage>,
-    ai_gym_state: ResMut<AIGymState<PlayerActionFlags, EnvironmentState>>,
+    ai_gym_state: ResMut<AIGymState<Actions, EnvironmentState>>,
 ) {
     for damage_event in event_damage.iter() {
         if damage_event.from == damage_event.to {
