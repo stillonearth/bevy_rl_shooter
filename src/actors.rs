@@ -62,7 +62,7 @@ fn new_agent_bundle(game_map: GameMap, actor_name: String) -> ActorBundle {
                 rotation: Quat::from_rotation_y(actor.rotation),
                 ..Default::default()
             },
-            visibility: Visibility { is_visible: true },
+            visibility: Visibility::Hidden,
             ..Default::default()
         },
         velocity: Velocity { ..default() },
@@ -77,8 +77,8 @@ fn new_agent_camera_bundle(render_target: RenderTarget) -> ActorWeaponBundle {
     ActorWeaponBundle {
         camera_bundle: Camera3dBundle {
             camera: Camera {
+                // order: -1,
                 target: render_target,
-                priority: -1,
                 ..default()
             },
             camera_3d: Camera3d {
@@ -124,9 +124,9 @@ pub(crate) fn spawn_computer_actors(
             })
             .insert(RaycastMesh::<RaycastMarker>::default());
             // Camera
-            let agent_camera_bundle = new_agent_camera_bundle(RenderTarget::Image(
-                ai_gym_state.render_image_handles[i as usize].clone(),
-            ));
+            let agent_camera_bundle: ActorWeaponBundle = new_agent_camera_bundle(
+                RenderTarget::Image(ai_gym_state.render_image_handles[i as usize].clone()),
+            );
             cell.spawn(agent_camera_bundle);
         });
     }

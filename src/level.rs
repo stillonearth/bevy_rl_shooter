@@ -42,6 +42,7 @@ pub(crate) fn spawn_game_world(
     let size = 255.0 * 255.0;
     let mesh = meshes.add(Mesh::from(shape::Plane {
         size: (size as f32),
+        ..default()
     }));
 
     let white_material_handle = materials.add(Color::WHITE.into());

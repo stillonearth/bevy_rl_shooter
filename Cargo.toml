@@ -8,14 +8,14 @@ description = "👾Multi-Agent 🎮 FPS Gym Environment with 🏋️ bevy_rl"
 keywords = ["ai", "bevy", "gym", "rl", "bevy_rl"]
 
 [dependencies]
-bevy = { version = "0.9.0" }
-bevy_mod_raycast = { version = "0.7.0" }
-bevy-inspector-egui = "0.15.0"
-bevy_rl = { version = "0.9.8-beta" }
-bitflags = "1.3.2"
+bevy = { version = "0.10.1" }
+bevy_mod_raycast = { version = "0.8.0" }
+bevy-inspector-egui = "0.18.3"
+bevy_rl = { version = "0.10.2" }
+bitflags = "2.3.1"
 clap = { version = "4.0.2", features = ["derive"] }
 crossbeam-channel = "0.5.6"
-bevy_rapier3d = { version = "0.19.0", features = [
+bevy_rapier3d = { version = "0.21.0", features = [
     "simd-stable",
     "debug-render",
 ] }

@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct Actions: u32 {
         const IDLE = 1 << 0;
         const FORWARD = 1 << 1;

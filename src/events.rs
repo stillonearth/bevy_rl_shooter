@@ -103,7 +103,7 @@ pub(crate) fn event_damage(
             commands
                 .entity(entity)
                 .insert(Velocity { ..default() })
-                .insert(Visibility { is_visible: false });
+                .insert(Visibility::Hidden);
 
             ai_gym_state.set_reward(i, 10.0);
         }

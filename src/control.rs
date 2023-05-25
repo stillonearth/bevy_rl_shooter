@@ -21,7 +21,7 @@ pub(crate) fn control_agents(
         }
 
         if agent_actions[i].is_some() {
-            let agent_actions = agent_actions[i].unwrap();
+            let agent_actions = agent_actions[i].clone().unwrap();
 
             if agent_actions.contains(Actions::FORWARD) {
                 *velocity = Velocity {

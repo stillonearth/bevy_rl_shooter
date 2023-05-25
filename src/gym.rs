@@ -41,7 +41,7 @@ pub(crate) fn bevy_rl_pause_request(
 pub(crate) fn bevy_rl_control_request(
     ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
     mut control_event_reader: EventReader<EventControl>,
-    mut simulation_state: ResMut<State<SimulationState>>,
+    mut simulation_state: ResMut<NextState<SimulationState>>,
     mut rapier_configuration: ResMut<RapierConfiguration>,
     query_actors: Query<(&mut Velocity, &mut Transform, &Actor)>,
     collision_events: EventReader<CollisionEvent>,
@@ -82,7 +82,7 @@ pub(crate) fn bevy_rl_control_request(
 
         // Return to running state; note that it uses pop/push to avoid
         // entering `SystemSet::on_enter(SimulationState::Running)` which initialized game world anew
-        simulation_state.pop().unwrap();
+        simulation_state.set(SimulationState::Running);
     }
 }
 
@@ -92,7 +92,7 @@ pub(crate) fn bevy_rl_reset_request(
     mut commands: Commands,
     mut walls: Query<Entity, &Wall>,
     mut players: Query<(Entity, &Actor)>,
-    mut simulation_state: ResMut<State<SimulationState>>,
+    mut simulation_state: ResMut<NextState<SimulationState>>,
     ai_gym_state: Res<AIGymState<Actions, EnvironmentState>>,
 ) {
     if reset_event_reader.iter().count() == 0 {
@@ -107,7 +107,7 @@ pub(crate) fn bevy_rl_reset_request(
         commands.entity(e).despawn_recursive();
     }
 
-    simulation_state.set(SimulationState::Running).unwrap();
+    simulation_state.set(SimulationState::Initializing);
 
     let ai_gym_state = ai_gym_state.lock().unwrap();
     ai_gym_state.send_reset_result(true);

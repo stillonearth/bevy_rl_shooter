@@ -12,14 +12,19 @@ use crate::{actions::*, actors::*, events::*, gym::*, level::*};
 #[derive(Component, Resource)]
 pub(crate) struct RoundTimer(pub(crate) Timer);
 
+#[derive(Clone, Reflect)]
 pub(crate) struct RaycastMarker;
 
 // -------
 // Systems
 // -------
 
-fn restart_round_timer(mut timer: ResMut<RoundTimer>) {
+fn restart_round_timer(
+    mut timer: ResMut<RoundTimer>,
+    mut simulation_state: ResMut<NextState<SimulationState>>,
+) {
     timer.0.reset();
+    simulation_state.set(SimulationState::Running);
 }
 
 fn check_termination(
@@ -81,26 +86,32 @@ pub(crate) fn build_game_app(_mode: String) -> App {
         .add_plugin(AIGymPlugin::<Actions, EnvironmentState>::default());
 
     // Game world logic
-    app.add_system_set(
-        SystemSet::on_enter(SimulationState::Running)
-            .with_system(spawn_game_world.label("spawn_game_world"))
-            .with_system(spawn_computer_actors.after("spawn_game_world"))
-            .with_system(restart_round_timer.after("spawn_game_world")),
+    app.add_state::<SimulationState>();
+
+    app.add_systems(
+        (spawn_game_world, spawn_computer_actors, restart_round_timer)
+            .chain()
+            .in_set(OnUpdate(SimulationState::Initializing)),
     );
-    app.add_system_set(
-        SystemSet::on_update(SimulationState::Running)
-            // Event handlers
-            .with_system(event_gun_shot)
-            .with_system(event_damage)
-            .with_system(event_round_over)
-            .with_system(check_termination),
+
+    app.add_systems(
+        (
+            event_gun_shot,
+            event_damage,
+            event_round_over,
+            check_termination,
+        )
+            .in_set(OnUpdate(SimulationState::Running)),
     );
-    app.add_system_set(
-        SystemSet::on_update(SimulationState::PausedForControl)
-            // Event handlers
-            .with_system(bevy_rl_control_request)
-            .with_system(bevy_rl_reset_request)
-            .with_system(bevy_rl_pause_request),
+
+    app.add_systems(
+        (
+            bevy_rl_control_request,
+            bevy_rl_reset_request,
+            bevy_rl_pause_request,
+        )
+            .chain()
+            .in_set(OnUpdate(SimulationState::PausedForControl)),
     );
 
     app
